@@ -64,6 +64,20 @@ Moves the robot joints through a test pattern.
 python piper_sdk/demo/V2/piper_ctrl_joint.py
 ```
 
+### 🖥️ Robot Control UI
+A graphical interface to control the robot, view status, and manage settings.
+
+**Run with Quick Start:**
+```bash
+./quick_start_ui.sh
+```
+
+**Features:**
+-   **Connect**: Auto-detects CAN port.
+-   **Control**: Joint sliders, gripper control.
+-   **Status**: Real-time feedback (angles, current, errors).
+-   **Settings**: Master/Slave mode, zero calibration.
+
 ---
 
 ## 📂 Project Structure
