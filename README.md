@@ -176,3 +176,31 @@ ros2 launch piper_with_gripper_moveit demo.launch.py
     ```bash
     sudo apt install ros-humble-moveit* ros-humble-ros2-control* ros-humble-ros2-controllers*
     ```
+
+---
+
+## 🕹️ Dual Arm Teleoperation (gRPC)
+
+Scripts to control one arm (Slave) using another arm (Master) over the network.
+
+### 1. Setup
+- **Hardware**: Two Piper arms.
+- **Connection**: Connect Master to `can0`, Slave to `can1` (or separate machines).
+- **Dependencies**: `pip install grpcio grpcio-tools protobuf`
+
+### 2. Run
+**Step 1: Activate CAN interfaces**
+```bash
+./piper_teleop/setup_dual_can.sh
+```
+
+**Step 2: Start Slave (Controlled Arm)**
+```bash
+python3 piper_teleop/slave.py
+```
+
+**Step 3: Start Master (Controller Arm)**
+```bash
+python3 piper_teleop/master.py
+```
+*(Edit `master.py` to set `slave_ip` if using two different computers).*
