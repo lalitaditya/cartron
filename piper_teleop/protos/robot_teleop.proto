@@ -1,0 +1,14 @@
+syntax = "proto3";
+package piper;
+
+service RobotService {
+  rpc SendJointState (JointValues) returns (Empty);
+}
+
+message JointValues {
+  repeated float joints = 1; // 6 joints in radians
+  float gripper = 2;         // Gripper value (0-100, or raw?)
+  bool enable = 3;           // Master enable switch
+}
+
+message Empty {}
