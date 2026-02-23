@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+import os
+import sys
 import time
 import grpc
 from concurrent import futures
 import robot_teleop_pb2
 import robot_teleop_pb2_grpc
+
+# Add parent dir (cartron/) so we can find piper_sdk
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from piper_sdk import C_PiperInterface_V2
 
 class RobotService(robot_teleop_pb2_grpc.RobotServiceServicer):
@@ -49,34 +54,56 @@ class RobotService(robot_teleop_pb2_grpc.RobotServiceServicer):
         return robot_teleop_pb2.Empty()
 
 def main():
-    # 1. Connect to Slave Arm (Active Mode)
-    can_port = "can1" # Assuming active arm is on can1 (or change to can0 if testing)
-    print(f"Connecting to Slave Arm on {can_port}...")
-    piper = C_PiperInterface_V2(can_port)
+    import argparse
+    import platform
+
+    parser = argparse.ArgumentParser(description="Piper Slave Arm gRPC Server")
+    parser.add_argument("--can-port", default=None,
+                        help="CAN port (e.g. COM5 on Windows, can0 on Linux). "
+                             "Defaults to COM5 on Windows, can0 on Linux.")
+    parser.add_argument("--grpc-port", default="50051", help="gRPC listen port")
+    args = parser.parse_args()
+
+    is_windows = platform.system() == "Windows"
+
+    if args.can_port is None:
+        args.can_port = "COM5" if is_windows else "can0"
+
+    print(f"Connecting to Slave Arm on {args.can_port}...")
+
+    if is_windows:
+        # Windows: use SLCAN (serial CAN) via CreateCanBus
+        piper = C_PiperInterface_V2(args.can_port, can_auto_init=False)
+        piper.CreateCanBus(args.can_port, bustype="slcan",
+                           expected_bitrate=1000000, judge_flag=False)
+    else:
+        # Linux: use socketcan (default)
+        piper = C_PiperInterface_V2(args.can_port)
+
     piper.ConnectPort()
-    
-    # 2. Start gRPC Server (Start BEFORE enabling to allow connection)
+
+    # Start gRPC Server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     robot_teleop_pb2_grpc.add_RobotServiceServicer_to_server(RobotService(piper), server)
-    
-    port = "50051"
-    server.add_insecure_port(f'[::]:{port}')
+
+    server.add_insecure_port(f'[::]:{args.grpc_port}')
     server.start()
-    print(f"Slave Server listening on port {port}")
+    print(f"Slave Server listening on port {args.grpc_port}")
 
     # Enable Motors
     print("Enabling Slave Arm...")
     while not piper.EnablePiper():
         time.sleep(0.1)
-    
-    # Set speed/accel limits if needed
+    print("Slave Arm enabled!")
+
+    # Set speed/accel limits
     piper.MotionCtrl_2(0x01, 0x01, 50, 0x00)
-    
+
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
         print("\nStopping Slave...")
-        piper.DisableArm(7) # Safety disable
+        piper.DisableArm(7)  # Safety disable
 
 if __name__ == "__main__":
     main()
