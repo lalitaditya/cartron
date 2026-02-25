@@ -42,6 +42,14 @@ try:
 except ImportError:
     GRPC_AVAILABLE = False
 
+# Piper SDK (for direct CAN control)
+try:
+    from piper_sdk import C_PiperInterface_V2
+    import platform
+    PIPER_SDK_AVAILABLE = True
+except ImportError:
+    PIPER_SDK_AVAILABLE = False
+
 # ─── Piper DH Parameters (from piper_sdk/kinematics/piper_fk.py, 2° offset) ──
 DH_A     = [0.0, 0.0, 285.03, -21.98, 0.0, 0.0]
 DH_ALPHA = [0.0, -math.pi/2, 0.0, math.pi/2, -math.pi/2, math.pi/2]
@@ -292,6 +300,14 @@ class PiperBridgeNode:
             self.grpc_stub = robot_teleop_pb2_grpc.RobotServiceStub(self.grpc_channel)
             print(f"[bridge] gRPC client initialized to {args.grpc_host}:{args.grpc_port}")
 
+        # Direct CAN control (physical arm)
+        self.piper = None
+        if args.can:
+            if not PIPER_SDK_AVAILABLE:
+                print("[bridge] ERROR: piper_sdk not found, --can disabled.")
+            else:
+                self._init_can(args.can_port)
+
         self._last_print = 0.0
 
     # ── Coordinate transform ──────────────────────────────────────────────
@@ -306,6 +322,40 @@ class PiperBridgeNode:
         """SteamVR quaternion (xyzw) → ROS frame (xyzw)."""
         qx, qy, qz, qw = quat
         return [-qz, -qx, qy, qw]
+
+    # ── CAN initialization ─────────────────────────────────────────────────
+    def _init_can(self, can_port):
+        """Connect to the physical arm via CAN bus and enable motors."""
+        is_windows = platform.system() == "Windows"
+        print(f"[bridge] Connecting to arm via CAN on {can_port}...")
+
+        try:
+            if is_windows:
+                # Windows: SLCAN (serial CAN adapter)
+                self.piper = C_PiperInterface_V2(can_port, can_auto_init=False)
+                self.piper.CreateCanBus(can_port, bustype="slcan",
+                                       expected_bitrate=1000000, judge_flag=False)
+            else:
+                # Linux: socketcan
+                self.piper = C_PiperInterface_V2(can_port)
+
+            self.piper.ConnectPort()
+            print("[bridge] CAN connected. Enabling arm motors...")
+
+            # Enable with timeout
+            t0 = time.time()
+            while not self.piper.EnablePiper():
+                if time.time() - t0 > 10.0:
+                    print("[bridge] WARNING: Arm enable timed out after 10s. "
+                          "Continuing anyway — arm may not respond.")
+                    break
+                time.sleep(0.01)
+            else:
+                print("[bridge] Arm enabled!")
+
+        except Exception as e:
+            print(f"[bridge] CAN init failed: {e}")
+            self.piper = None
 
     # ── Main loop ─────────────────────────────────────────────────────────
     def run(self):
@@ -332,17 +382,26 @@ class PiperBridgeNode:
                     t_pos, _ = self.transform_pose(pos, quat)
                     r_quat = self.steamvr_quat_to_ros(quat)
 
-                    # Compute IK once, share between ROS + gRPC
+                    # Compute IK once, share between ROS + CAN + gRPC
                     joints, grip_pos = self.compute_ik(t_pos, r_quat, trigger)
 
                     if self.ros_node:
                         self.publish_ros(t_pos, r_quat, joints, grip_pos)
+                    if self.piper:
+                        self.send_can(joints, grip_pos)
                     if self.grpc_stub:
                         self.send_grpc(joints, grip_pos)
 
         except KeyboardInterrupt:
             print("\n[bridge] Interrupted, shutting down.")
         finally:
+            # Safety: disable arm first
+            if self.piper:
+                try:
+                    self.piper.DisableArm(7)
+                    print("[bridge] Arm disabled (safety).")
+                except Exception:
+                    pass
             if self.ros_node:
                 self.ros_node.destroy_node()
                 if rclpy.ok():
@@ -415,19 +474,39 @@ class PiperBridgeNode:
         js_msg.position = joints + [grip_pos, -grip_pos]
         self.joint_pub.publish(js_msg)
 
-    # ── gRPC (joint control) ───────────────────────────────────────────────
+    # ── Direct CAN control (physical arm) ──────────────────────────────────
+    def send_can(self, joints, grip_pos):
+        """Send IK joint angles directly to the physical arm via CAN.
+        Calls MotionCtrl_2 every iteration (required by SDK).
+        Converts radians → millidegrees (SDK unit = 0.001°).
+        """
+        if not self.piper:
+            return
+        # Convert joint angles: radians → millidegrees
+        j_mdeg = [round(joints[i] * RAD_TO_MDEG) for i in range(NUM_JOINTS)]
+
+        # Gripper: grip_pos is 0–0.035m, SDK expects ×1e6 units
+        gripper_val = abs(round(grip_pos * 1_000_000))
+
+        try:
+            # MUST call MotionCtrl_2 every iteration to keep arm in active mode
+            self.piper.MotionCtrl_2(0x01, 0x01, 50, 0x00)
+            self.piper.JointCtrl(j_mdeg[0], j_mdeg[1], j_mdeg[2],
+                                 j_mdeg[3], j_mdeg[4], j_mdeg[5])
+            self.piper.GripperCtrl(gripper_val, 1000, 0x01, 0)
+        except Exception as e:
+            now = time.time()
+            if now - self._last_print > 5.0:
+                print(f"[bridge] CAN send error: {e}")
+
+    # ── gRPC (joint control, optional) ────────────────────────────────────
     def send_grpc(self, joints, grip_pos):
         """Send IK joint angles to the physical arm via gRPC.
         Converts radians → millidegrees (SDK unit = 0.001°).
         """
         if not self.grpc_stub:
             return
-        # Convert joint angles: radians → millidegrees
-        # SDK factor = 1000 * 180 / pi = 57295.7795
         j_mdeg = [round(joints[i] * RAD_TO_MDEG) for i in range(NUM_JOINTS)]
-
-        # Gripper: SDK expects gripper angle in ×1e6 units
-        # grip_pos is in meters (0–0.035m), convert to SDK range
         gripper_val = round(grip_pos * 1_000_000)
 
         try:
@@ -450,6 +529,10 @@ def main():
     parser.add_argument("--bind-ip",   default="0.0.0.0")
     parser.add_argument("--udp-port",  type=int, default=5005)
     parser.add_argument("--ros",       action="store_true", help="Enable ROS2 publishing")
+    parser.add_argument("--can",       action="store_true",
+                        help="Enable direct CAN control of physical arm")
+    parser.add_argument("--can-port",  default=None,
+                        help="CAN port (COM5 on Windows, can0 on Linux). Auto-detected.")
     parser.add_argument("--grpc",      action="store_true", help="Enable gRPC client")
     parser.add_argument("--grpc-host", default="127.0.0.1")
     parser.add_argument("--grpc-port", type=int, default=50051)
@@ -462,6 +545,11 @@ def main():
     parser.add_argument("--ik-orientation", action="store_true",
                         help="Include orientation in IK error (6-DOF)")
     args = parser.parse_args()
+
+    # Auto-detect CAN port if not specified
+    if args.can and args.can_port is None:
+        import platform as _plat
+        args.can_port = "COM5" if _plat.system() == "Windows" else "can0"
 
     bridge = PiperBridgeNode(args)
     bridge.run()

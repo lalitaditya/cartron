@@ -36,17 +36,11 @@ class RobotService(robot_teleop_pb2_grpc.RobotServiceServicer):
             
             j = [int(val) for val in request.joints]
             gripper = int(request.gripper)
-            
-            # Call SDK Control function
-            # MotionCtrl_2 for speed/accel?
-            # piper.MotionCtrl_2(0x01, 0x01, 50, 0x00) # Speed 50?
-            
+
+            # MUST call MotionCtrl_2 every frame to keep arm in active mode
+            self.piper.MotionCtrl_2(0x01, 0x01, 50, 0x00)
             self.piper.JointCtrl(j[0], j[1], j[2], j[3], j[4], j[5])
-            
-            # Gripper
-            # GripperCtrl(val, speed, mode, force)
-            # Mode 0x01 = position control
-            self.piper.GripperCtrl(abs(gripper), 2000, 0x01, 0) # speed 2000
+            self.piper.GripperCtrl(abs(gripper), 2000, 0x01, 0)
 
         except Exception as e:
             print(f"Error processing command: {e}")
