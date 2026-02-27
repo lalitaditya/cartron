@@ -8,13 +8,16 @@ Receives VR controller pose via UDP, then:
   3. Optionally sends Cartesian EndPose to gRPC for the physical robot.
 """
 import argparse
+import time
+import socket
 import json
 import math
 import os
-import socket
 import sys
-import time
-from typing import List, Optional
+import platform
+import threading
+from concurrent import futures
+from typing import List, Optional, Tuple, Dict, Any
 
 import numpy as np
 
@@ -22,6 +25,8 @@ import numpy as np
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CARTRON_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, CARTRON_ROOT)
+# Add piper_teleop/ for gRPC protobuf imports
+sys.path.insert(0, os.path.join(CARTRON_ROOT, "piper_teleop"))
 
 # Optional ROS2 imports
 try:
@@ -296,8 +301,16 @@ class PiperBridgeNode:
         self.grpc_stub = None
         if args.grpc and GRPC_AVAILABLE:
             import grpc
-            self.grpc_channel = grpc.insecure_channel(f"{args.grpc_host}:{args.grpc_port}")
+            # Use TCP_NODELAY to disable Nagle's algorithm (critical for real-time)
+            options = [('grpc.tcp_nodelay', 1)]
+            self.grpc_channel = grpc.insecure_channel(f"{args.grpc_host}:{args.grpc_port}", 
+                                                    options=options)
             self.grpc_stub = robot_teleop_pb2_grpc.RobotServiceStub(self.grpc_channel)
+            # Thread pooling for non-blocking gRPC sends
+            self.executor = futures.ThreadPoolExecutor(max_workers=1)
+            self._last_grpc_joints = None
+            self._last_grpc_grip = None
+            self._grpc_lock = threading.Lock()
             print(f"[bridge] gRPC client initialized to {args.grpc_host}:{args.grpc_port}")
 
         # Direct CAN control (physical arm)
@@ -363,10 +376,24 @@ class PiperBridgeNode:
         print("[bridge] IK: analytical Jacobian + pseudoinverse (6-DOF)")
         try:
             while True:
-                try:
-                    data, addr = self.sock.recvfrom(65535)
-                    msg = json.loads(data.decode('utf-8'))
-                except (socket.timeout, json.JSONDecodeError):
+                # Drain the socket buffer to get ONLY the latest packet
+                # This prevents command backlog and lag
+                msg = None
+                self.sock.setblocking(False) # Ensure non-blocking for drain
+                while True:
+                    try:
+                        data, addr = self.sock.recvfrom(65535)
+                        msg = json.loads(data.decode('utf-8'))
+                    except (BlockingIOError, socket.error):
+                        # No more data in buffer
+                        break
+                    except json.JSONDecodeError:
+                        continue
+                self.sock.setblocking(True) # Restore blocking if needed or handle accordingly
+
+                if msg is None:
+                    # No new packet received in this tick, wait a bit
+                    time.sleep(0.001)
                     continue
 
                 controllers = msg.get("controllers", {})
@@ -499,27 +526,54 @@ class PiperBridgeNode:
             if now - self._last_print > 5.0:
                 print(f"[bridge] CAN send error: {e}")
 
-    # ── gRPC (joint control, optional) ────────────────────────────────────
+    # ── gRPC (joint control, background threaded) ─────────────────────────
     def send_grpc(self, joints, grip_pos):
-        """Send IK joint angles to the physical arm via gRPC.
-        Converts radians → millidegrees (SDK unit = 0.001°).
-        """
+        """Queue latest joint values for background send without buildup."""
         if not self.grpc_stub:
             return
-        j_mdeg = [round(joints[i] * RAD_TO_MDEG) for i in range(NUM_JOINTS)]
+        
+        # Convert to SDK units (millidegrees)
+        j_mdeg = [round(v * RAD_TO_MDEG) for v in joints]
         gripper_val = round(grip_pos * 1_000_000)
 
-        try:
-            request = robot_teleop_pb2.JointValues(
-                joints=[float(v) for v in j_mdeg],
-                gripper=float(gripper_val),
-                enable=True
-            )
-            self.grpc_stub.SendJointState(request)
-        except Exception as e:
-            now = time.time()
-            if now - self._last_print > 5.0:
-                print(f"[bridge] gRPC error: {e}")
+        # Update latest data.
+        with self._grpc_lock:
+            self._last_grpc_joints = j_mdeg
+            self._last_grpc_grip = gripper_val
+            
+            # If a worker is already running, it will pick up these fresh values
+            # when it finishes. No need to submit another task.
+            if getattr(self, '_grpc_busy', False):
+                return
+            self._grpc_busy = True
+
+        self.executor.submit(self._grpc_worker)
+
+    def _grpc_worker(self):
+        """Thread worker to perform the actual gRPC call."""
+        while True:
+            with self._grpc_lock:
+                if self._last_grpc_joints is None:
+                    self._grpc_busy = False
+                    return
+                joints = self._last_grpc_joints
+                grip = self._last_grpc_grip
+                self._last_grpc_joints = None # Consume the data
+
+            import robot_teleop_pb2
+            try:
+                request = robot_teleop_pb2.JointValues(
+                    joints=[float(v) for v in joints],
+                    gripper=float(grip),
+                    enable=True
+                )
+                # Physical network timeout
+                self.grpc_stub.SendJointState(request, timeout=0.05)
+            except Exception:
+                pass
+            
+            # After sending, we loop once more to see if fresh data 
+            # arrived while we were busy. If not, we exit and clear 'busy'.
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────────
