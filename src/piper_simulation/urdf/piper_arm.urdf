@@ -1,0 +1,780 @@
+<?xml version="1.0"?>
+<!--
+  Piper 6-DOF Robotic Arm URDF — Enhanced Visual Model
+  Built from real DH parameters in piper_sdk/kinematics/piper_fk.py
+  and joint limits from piper_sdk/piper_param/piper_param_manager.py
+
+  Composite geometric primitives used for realistic appearance.
+  For photorealistic visuals, replace with STL meshes in the future.
+
+  DH Parameters (with 2° offset):
+    a     = [0,      0,       285.03,  -21.98,  0,      0     ] mm
+    alpha = [0,     -π/2,     0,        π/2,   -π/2,    π/2   ]
+    theta = [0,     -172.22°, -102.78°, 0,      0,      0     ]
+    d     = [123,    0,       0,        250.75, 0,      91    ] mm
+
+  Joint Limits:
+    J1: [-150°, 150°]   J2: [0°, 180°]      J3: [-170°, 0°]
+    J4: [-100°, 100°]   J5: [-70°, 70°]     J6: [-120°, 120°]
+    Gripper: [0, 70mm]
+
+  NOTE: URDF uses meters, so all mm values are converted (÷1000).
+-->
+<robot name="piper_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== Materials ==================== -->
+  <!-- Body: dark charcoal -->
+  <material name="body_dark">
+    <color rgba="0.15 0.15 0.17 1.0"/>
+  </material>
+  <!-- Joint housings: silver/light grey -->
+  <material name="joint_silver">
+    <color rgba="0.72 0.73 0.75 1.0"/>
+  </material>
+  <!-- Accent: subtle blue -->
+  <material name="accent_blue">
+    <color rgba="0.20 0.45 0.85 1.0"/>
+  </material>
+  <!-- Base plate -->
+  <material name="base_plate">
+    <color rgba="0.10 0.10 0.12 1.0"/>
+  </material>
+  <!-- Motor ring highlight -->
+  <material name="motor_ring">
+    <color rgba="0.55 0.57 0.60 1.0"/>
+  </material>
+  <!-- Wrist accent: warm grey -->
+  <material name="wrist_grey">
+    <color rgba="0.40 0.40 0.42 1.0"/>
+  </material>
+  <!-- Gripper: dark with green tips -->
+  <material name="gripper_body">
+    <color rgba="0.18 0.18 0.20 1.0"/>
+  </material>
+  <material name="gripper_tip">
+    <color rgba="0.25 0.75 0.45 1.0"/>
+  </material>
+  <!-- Green target cube -->
+  <material name="bright_green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+
+  <!-- ==================== World (dummy root) ==================== -->
+  <link name="world"/>
+
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==================== Base Link ==================== -->
+  <!-- Wide base plate + mounting housing -->
+  <link name="base_link">
+    <!-- Bottom mounting plate -->
+    <visual>
+      <origin xyz="0 0 0.004" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.07 0.07 0.008"/>
+      </geometry>
+      <material name="base_plate"/>
+    </visual>
+    <!-- Main base housing -->
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.02"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Blue accent ring on base -->
+    <visual>
+      <origin xyz="0 0 0.029" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.036" length="0.002"/>
+      </geometry>
+      <material name="accent_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.015" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <!-- ==================== Link 1 (Base tower, d1=123mm) ==================== -->
+  <!-- Motor housing at base + tapered tower -->
+  <link name="link1">
+    <!-- Motor housing (large cylinder at base of J1) -->
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.034" length="0.036"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Motor ring detail -->
+    <visual>
+      <origin xyz="0 0 0.037" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.002"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Main tower body -->
+    <visual>
+      <origin xyz="0 0 0.065" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.048 0.044 0.054"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Top shoulder housing -->
+    <visual>
+      <origin xyz="0 0 0.098" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.052 0.048 0.014"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Blue accent stripe -->
+    <visual>
+      <origin xyz="0.025 0 0.065" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.040 0.054"/>
+      </geometry>
+      <material name="accent_blue"/>
+    </visual>
+    <!-- Shoulder motor housing (top) -->
+    <visual>
+      <origin xyz="0 0 0.112" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.014"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.0615" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.123"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.8"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 1: Base rotation around Z -->
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.03" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.6179" upper="2.6179" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Link 2 (Upper arm, a2=285.03mm) ==================== -->
+  <!-- Rectangular arm segment with motor housings at both ends -->
+  <link name="link2">
+    <!-- Shoulder motor housing -->
+    <visual>
+      <origin xyz="0 0 0.012" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.026" length="0.024"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Upper arm main body -->
+    <visual>
+      <origin xyz="0 0 0.14252" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.040 0.036 0.237"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Side accent stripe (left) -->
+    <visual>
+      <origin xyz="0.021 0 0.14252" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.032 0.237"/>
+      </geometry>
+      <material name="accent_blue"/>
+    </visual>
+    <!-- Elbow motor housing -->
+    <visual>
+      <origin xyz="0 0 0.267" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.024" length="0.018"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Elbow motor ring -->
+    <visual>
+      <origin xyz="0 0 0.277" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.025" length="0.002"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.14252" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.025" length="0.28503"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.6"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 2: Shoulder pitch -->
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0 0 0.123" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0" upper="3.14" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Link 3 (Forearm, d3=250.75mm) ==================== -->
+  <!-- Slimmer rectangular segment -->
+  <link name="link3">
+    <!-- Elbow joint housing -->
+    <visual>
+      <origin xyz="0 0 0.010" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.022" length="0.020"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Forearm main body -->
+    <visual>
+      <origin xyz="0 0 0.12538" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.034 0.030 0.210"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Side accent stripe -->
+    <visual>
+      <origin xyz="0.018 0 0.12538" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.026 0.210"/>
+      </geometry>
+      <material name="accent_blue"/>
+    </visual>
+    <!-- Wrist motor housing -->
+    <visual>
+      <origin xyz="0 0 0.237" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.020" length="0.016"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.12538" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.022" length="0.25075"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 3: Elbow -->
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="0 0 0.28503" rpy="1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.967" upper="0" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Link 4 (Wrist 1) ==================== -->
+  <!-- Compact cylindrical motor housing -->
+  <link name="link4">
+    <!-- Motor housing body -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.019" length="0.028"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Motor flange top -->
+    <visual>
+      <origin xyz="0 0 0.016" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.020" length="0.004"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Motor flange bottom -->
+    <visual>
+      <origin xyz="0 0 -0.016" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.020" length="0.004"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Wrist connector block -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.030 0.028 0.024"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.022"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.3"/>
+      <inertia ixx="0.0005" ixy="0" ixz="0" iyy="0.0005" iyz="0" izz="0.0005"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 4: Wrist 1 -->
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="-0.02198 0 0.25075" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.745" upper="1.745" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Link 5 (Wrist 2) ==================== -->
+  <!-- Compact motor housing rotated 90° -->
+  <link name="link5">
+    <!-- Motor housing -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.017" length="0.024"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Motor ring -->
+    <visual>
+      <origin xyz="0 0 0.013" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.018" length="0.002"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Wrist connector -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.026 0.024 0.020"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.020"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.2"/>
+      <inertia ixx="0.0003" ixy="0" ixz="0" iyy="0.0003" iyz="0" izz="0.0003"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 5: Wrist 2 -->
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child link="link5"/>
+    <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.22" upper="1.22" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Link 6 (Tool mount, d5=91mm) ==================== -->
+  <!-- Flanged cylinder for tool/gripper mount -->
+  <link name="link6">
+    <!-- Tool rotation motor -->
+    <visual>
+      <origin xyz="0 0 0.010" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.016" length="0.020"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Tool mount shaft -->
+    <visual>
+      <origin xyz="0 0 0.045" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.013" length="0.050"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Flange ring -->
+    <visual>
+      <origin xyz="0 0 0.072" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.018" length="0.004"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Tool adapter plate -->
+    <visual>
+      <origin xyz="0 0 0.085" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.016" length="0.012"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.0455" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.016" length="0.091"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.15"/>
+      <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0002"/>
+    </inertial>
+  </link>
+
+  <!-- Joint 6: Tool rotation -->
+  <joint name="joint6" type="revolute">
+    <parent link="link5"/>
+    <child link="link6"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.09439" upper="2.09439" effort="10" velocity="1.0"/>
+  </joint>
+
+  <!-- ==================== Gripper Base ==================== -->
+  <!-- Detailed actuator housing with guide rail mechanism -->
+  <link name="gripper_base">
+    <!-- Mounting flange (connects to link6) -->
+    <visual>
+      <origin xyz="0 0 0.003" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.018" length="0.006"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Actuator housing main body -->
+    <visual>
+      <origin xyz="0 0 0.016" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.050 0.032 0.020"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Servo motor bulge (rear) -->
+    <visual>
+      <origin xyz="0 -0.014 0.016" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.030 0.010 0.016"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <!-- Top cover plate -->
+    <visual>
+      <origin xyz="0 0 0.027" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.052 0.034 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Blue accent line on top -->
+    <visual>
+      <origin xyz="0 0 0.0285" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.048 0.002 0.001"/>
+      </geometry>
+      <material name="accent_blue"/>
+    </visual>
+    <!-- Left guide rail -->
+    <visual>
+      <origin xyz="-0.020 0 0.033" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.006 0.028 0.008"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Right guide rail -->
+    <visual>
+      <origin xyz="0.020 0 0.033" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.006 0.028 0.008"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Center lead screw housing -->
+    <visual>
+      <origin xyz="0 0 0.033" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.003" length="0.024"/>
+      </geometry>
+      <material name="joint_silver"/>
+    </visual>
+    <!-- Side wall left -->
+    <visual>
+      <origin xyz="-0.026 0 0.016" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.032 0.020"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <!-- Side wall right -->
+    <visual>
+      <origin xyz="0.026 0 0.016" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.032 0.020"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.054 0.036 0.038"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_base_joint" type="fixed">
+    <parent link="link6"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 0.091" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==================== Gripper Left Finger ==================== -->
+  <!-- L-shaped finger with slider block, palm, knuckle, and rubber grip pad -->
+  <link name="gripper_left_finger">
+    <!-- Slider block (rides on guide rail) -->
+    <visual>
+      <origin xyz="0 0 0.002" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.012 0.024 0.010"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Finger palm (vertical section of L-shape) -->
+    <visual>
+      <origin xyz="0 0 -0.018" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.010 0.022 0.030"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Structural rib on palm -->
+    <visual>
+      <origin xyz="0.004 0 -0.010" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.003 0.020 0.012"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <!-- Knuckle joint (horizontal bend of L-shape) -->
+    <visual>
+      <origin xyz="0.006 0 -0.035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.014 0.022 0.006"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Inner grip face (vertical tip section) -->
+    <visual>
+      <origin xyz="0.012 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.006 0.020 0.024"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Rubber grip pad (green, textured contact surface) -->
+    <visual>
+      <origin xyz="0.016 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.018 0.022"/>
+      </geometry>
+      <material name="gripper_tip"/>
+    </visual>
+    <!-- Grip pad texture line 1 -->
+    <visual>
+      <origin xyz="0.0175 0 -0.044" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Grip pad texture line 2 -->
+    <visual>
+      <origin xyz="0.0175 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Grip pad texture line 3 -->
+    <visual>
+      <origin xyz="0.0175 0 -0.056" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="0.006 0 -0.030" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.024 0.065"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.02"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_left_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="gripper_left_finger"/>
+    <origin xyz="-0.012 0 0.033" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.035" upper="0" effort="5" velocity="0.5"/>
+  </joint>
+
+  <!-- ==================== Gripper Right Finger ==================== -->
+  <!-- Mirror of left finger: L-shaped with slider, palm, knuckle, rubber pad -->
+  <link name="gripper_right_finger">
+    <!-- Slider block -->
+    <visual>
+      <origin xyz="0 0 0.002" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.012 0.024 0.010"/>
+      </geometry>
+      <material name="motor_ring"/>
+    </visual>
+    <!-- Finger palm (vertical section) -->
+    <visual>
+      <origin xyz="0 0 -0.018" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.010 0.022 0.030"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Structural rib -->
+    <visual>
+      <origin xyz="-0.004 0 -0.010" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.003 0.020 0.012"/>
+      </geometry>
+      <material name="wrist_grey"/>
+    </visual>
+    <!-- Knuckle joint (L-bend) -->
+    <visual>
+      <origin xyz="-0.006 0 -0.035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.014 0.022 0.006"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Inner grip face -->
+    <visual>
+      <origin xyz="-0.012 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.006 0.020 0.024"/>
+      </geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- Rubber grip pad -->
+    <visual>
+      <origin xyz="-0.016 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.018 0.022"/>
+      </geometry>
+      <material name="gripper_tip"/>
+    </visual>
+    <!-- Grip pad texture line 1 -->
+    <visual>
+      <origin xyz="-0.0175 0 -0.044" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Grip pad texture line 2 -->
+    <visual>
+      <origin xyz="-0.0175 0 -0.050" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <!-- Grip pad texture line 3 -->
+    <visual>
+      <origin xyz="-0.0175 0 -0.056" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.016 0.002"/>
+      </geometry>
+      <material name="body_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.006 0 -0.030" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.024 0.065"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.02"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_right_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="gripper_right_finger"/>
+    <origin xyz="0.012 0 0.033" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.035" effort="5" velocity="0.5"/>
+  </joint>
+
+  <!-- ==================== Green Cube (static target object) ==================== -->
+  <link name="green_cube">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.05 0.05"/>
+      </geometry>
+      <material name="bright_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.05 0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.00004" ixy="0" ixz="0" iyy="0.00004" iyz="0" izz="0.00004"/>
+    </inertial>
+  </link>
+
+  <joint name="world_to_green_cube" type="fixed">
+    <parent link="world"/>
+    <child link="green_cube"/>
+    <origin xyz="0.3 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>
