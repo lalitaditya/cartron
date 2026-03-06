@@ -81,4 +81,34 @@ python piper_sdk/demo/V2/piper_ctrl_joint.py
 -   **Permission Denied**: `quick_start.sh` and other scripts must be executable (`chmod +x script.sh`).
 
 ---
+
+## 🤖 Simulation (RViz2)
+
+An interactive 3D RViz2 simulation of the Piper arm is available in `piper_simulation/`.
+
+### Prerequisites
+```bash
+sudo apt install ros-humble-joint-state-publisher-gui
+```
+
+### Launch
+```bash
+source /opt/ros/humble/setup.bash
+ros2 launch piper_simulation display.launch.py
+```
+
+Or run directly without building:
+```bash
+source /opt/ros/humble/setup.bash
+ros2 launch /path/to/cartron/piper_simulation/launch/display.launch.py
+```
+
+Features:
+-   URDF model built from real DH parameters
+-   Joint sliders via `joint_state_publisher_gui`
+-   All 6 joints with accurate limits
+-   Gripper open/close control
+-   TF tree visualization
+
+---
 *Based on AgileX Piper SDK.*

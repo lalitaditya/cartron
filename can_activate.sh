@@ -82,7 +82,7 @@ if [ -n "$USB_ADDRESS" ]; then
 else
     # Retrieve the unique CAN interface.
     INTERFACE_NAME=$(ip -br link show type can | awk '{print $1}')
-    
+
     # Check if the interface name has been retrieved.
     if [ -z "$INTERFACE_NAME" ]; then
         echo "Error: Unable to detect CAN interface."
