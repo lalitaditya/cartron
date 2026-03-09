@@ -1,0 +1,53 @@
+/**:
+  ros__parameters:
+    # Execution flag
+    execute: true
+
+    # Total planning attempts
+    max_solutions: 50
+
+    # Planning group and link names
+    arm_group_name: "piper_arm"
+    eef_name: "piper_gripper"
+    hand_group_name: "piper_gripper"
+    hand_frame: "gripper_base"
+
+    # Poses
+    hand_open_pose: "open"
+    hand_close_pose: "close"
+    arm_home_pose: "ready"
+
+    # Scene frames
+    world_frame: "base_link"
+    table_reference_frame: "base_link"
+    object_reference_frame: "base_link"
+    surface_link: "piper_table"
+
+    # Collision object for picking
+    # Move to 'Goldilocks' zone: 0.4m (Comfortable reach for Piper)
+    object_name: "object"
+    object_dimensions: [0.05, 0.02] # [height, radius]
+    object_pose: [0.4, 0.0, 0.2, 0.0, 0.0, 0.0]
+
+    # Table model
+    spawn_table: true
+    table_name: "piper_table"
+    table_dimensions: [0.3, 0.3, 0.01]
+    table_pose: [0.4, 0.0, 0.005, 0.0, 0.0, 0.0]
+
+    # Gripper grasp frame transform [x,y,z,r,p,y]
+    # SIDE-GRASP (Horizontal approach)
+    # FIX: Must be -1.57 to point FINGERS at object. +1.57 points BACK OF HAND at object!
+    grasp_frame_transform: [0.0, 0.0, 0.12, 0.0, -1.57, 0.0]
+
+    # Place pose [x,y,z,r,p,y]
+    place_pose: [0.2, 0.3, 0.2, 0.0, 0.0, 0.0]
+    place_surface_offset: 0.0001
+
+    # Valid distance range when approaching an object for picking
+    approach_object_min_dist: 0.05
+    approach_object_max_dist: 0.1
+
+    # Valid height range when lifting an object after pick
+    lift_object_min_dist: 0.02
+    lift_object_max_dist: 0.1

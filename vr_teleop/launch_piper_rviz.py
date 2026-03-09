@@ -28,6 +28,49 @@ def generate_launch_description():
     abs_uri = 'file:///' + base_path.replace('\\', '/') + '/'
     content = content.replace('package://piper_description/', abs_uri)
     
+    # Append a static test cube to the URDF for grasping trials
+    test_cube_urdf = """
+  <link name="test_cube">
+    <visual>
+      <geometry><box size="0.05 0.05 0.05"/></geometry>
+      <material name="green"><color rgba="0 1 0 1"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="0.05 0.05 0.05"/></geometry>
+    </collision>
+  </link>
+  <joint name="test_cube_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="test_cube"/>
+    <origin xyz="0.40 -0.10 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Intel RealSense D435 wrist camera (90x25x25mm) -->
+  <link name="wrist_camera_link">
+    <visual>
+      <geometry><box size="0.025 0.09 0.025"/></geometry>
+      <material name="dark_gray"><color rgba="0.15 0.15 0.15 1"/></material>
+    </visual>
+  </link>
+  <joint name="wrist_camera_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="wrist_camera_link"/>
+    <!-- Mounted on top of gripper base, tilted down ~30° to view workspace -->
+    <origin xyz="0 0.04 0.02" rpy="0 -0.5 0"/>
+  </joint>
+
+  <!-- Optical frame: Z-forward, X-right, Y-down (standard camera convention) -->
+  <!-- gripper_base has Z along gripper (forward), Y left, X up -->
+  <!-- So: optical Z = link Z, optical X = link -Y, optical Y = link -X -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="wrist_camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+  </joint>
+</robot>"""
+    content = content.replace('</robot>', test_cube_urdf)
+    
     robot_description = ParameterValue(content, value_type=str)
 
     robot_state_publisher_node = Node(
