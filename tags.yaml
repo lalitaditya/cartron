@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    # AprilTag detector settings
+    image_transport: raw
+    family: 36h11
+    size: 0.1  # Size of the tag square in meters (measure your physical tag!)
+    max_hamming: 0
+    
+    # Tag IDs and their names (optional, used for specific labeling)
+    tags: [
+      {id: 0, size: 0.1, name: "shopping_cart_tag"}
+    ]

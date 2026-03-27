@@ -356,13 +356,14 @@ class C_PiperInterface_V2():
                 start_sdk_gripper_limit: bool = False,
                 logger_level:LogLevel = LogLevel.WARNING,
                 log_to_file:bool = False,
-                log_file_path = None):
+                log_file_path = None,
+                can_interface: str = "socketcan"):
         """
         实现单例模式：
         - 相同 can_name参数，只会创建一个实例
         - 不同参数，允许创建新的实例
         """
-        key = (can_name)  # 生成唯一 Key
+        key = (can_name, can_interface)  # 生成唯一 Key
         with cls._lock:
             if key not in cls._instances:
                 instance = super().__new__(cls)  # 创建新实例
@@ -380,7 +381,8 @@ class C_PiperInterface_V2():
                 start_sdk_gripper_limit: bool = False,
                 logger_level:LogLevel = LogLevel.WARNING,
                 log_to_file:bool = False,
-                log_file_path = None) -> None:
+                log_file_path = None,
+                can_interface: str = "socketcan") -> None:
         if getattr(self, "_initialized", False): 
             return  # 避免重复初始化
         # log
@@ -415,7 +417,7 @@ class C_PiperInterface_V2():
         # self.__reconnect_after_disconnection = reconnect_after_disconnection
         try:
             if(can_auto_init):
-                self.__arm_can=C_STD_CAN(can_name, "socketcan", 1000000, judge_flag, True, self.ParseCANFrame)
+                self.__arm_can=C_STD_CAN(can_name, can_interface, 1000000, judge_flag, True, self.ParseCANFrame)
             else:
                 self.__arm_can=None
         except Exception as e:
@@ -582,12 +584,13 @@ class C_PiperInterface_V2():
             self.__arm_can.Init()
         except Exception as e:
             self.logger.error(e)
-            raise ConnectionError("['%s' CreateCanBus ERROR]" % can_name)
+            raise ConnectionError("['%s' CreateCanBus ERROR Interface: %s]" % (can_name, bustype))
 
     def ConnectPort(self, 
                     can_init :bool = False, 
                     piper_init :bool = True, 
-                    start_thread :bool = True):
+                    start_thread :bool = True,
+                    bitrate :int = 1000000):
         '''
         Starts a thread to process data from the connected CAN port.
         
@@ -604,7 +607,8 @@ class C_PiperInterface_V2():
             self.logger.info("[ConnectPort] Start Can Init")
             init_status = None
             try:
-                # self.__arm_can=C_STD_CAN(self.__can_channel_name, "socketcan", 1000000, False, False, self.ParseCANFrame)
+                if self.__arm_can:
+                    self.__arm_can.expected_bitrate = bitrate
                 init_status = self.__arm_can.Init()
             except Exception as e:
                 # self.__arm_can = None

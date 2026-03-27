@@ -107,17 +107,18 @@ class C_STD_CAN():
             return self.CAN_STATUS.DEL_SHUTTING_DOWN_CAN_BUS_ERR
     
     def Init(self):
-        '''初始化can总线
-        '''
-        '''Initialize the CAN bus.
-        '''
         if self.bus is not None:
-            # return True
             return self.CAN_STATUS.INIT_CAN_BUS_IS_EXIST
         try:
-            self.bus = can.interface.Bus(channel=self.channel_name, bustype=self.bustype, bitrate=self.expected_bitrate)
+            # For gs_usb, the channel is often an integer index
+            ch = self.channel_name
+            if self.bustype == "gs_usb" and isinstance(ch, str) and ch.isdigit():
+                ch = int(ch)
+            
+            self.bus = can.interface.Bus(channel=ch, bustype=self.bustype, bitrate=self.expected_bitrate)
             return self.CAN_STATUS.INIT_CAN_BUS_OPENED_SUCCESS
-        except can.CanError as e:
+        except Exception as e:
+            print(f"[C_STD_CAN] Init failed on {self.channel_name} (bustype={self.bustype}, bitrate={self.expected_bitrate}): {e}")
             self.bus = None
             return self.CAN_STATUS.INIT_CAN_BUS_OPENED_FAILED
 
@@ -171,9 +172,10 @@ class C_STD_CAN():
 
     def ReadCanMessage(self):
         can_bus_status = self.is_can_bus_ok()
-        if(can_bus_status == self.CAN_STATUS.BUS_STATE_ACTIVE):
+        if(can_bus_status == self.CAN_STATUS.BUS_STATE_ACTIVE or \
+           can_bus_status == self.CAN_STATUS.BUS_STATE_UNKNOWN):
             try:
-                self.rx_message = self.bus.recv(1)
+                self.rx_message = self.bus.recv(0.01)
                 if self.rx_message is None:
                     return self.CAN_STATUS.READ_CAN_MSG_TIMEOUT
                 if self.rx_message and self.callback_function:
@@ -197,7 +199,9 @@ class C_STD_CAN():
                               data=data, 
                               dlc=dlc,
                               is_extended_id=is_extended_id)
-        if(self.is_can_bus_ok() == self.CAN_STATUS.BUS_STATE_ACTIVE):
+        bus_state = self.is_can_bus_ok()
+        if bus_state == self.CAN_STATUS.BUS_STATE_ACTIVE or \
+           bus_state == self.CAN_STATUS.BUS_STATE_UNKNOWN:
             try:
                 self.bus.send(message)
                 # return True
@@ -205,6 +209,7 @@ class C_STD_CAN():
             # except can.CanError:
             #     return self.CAN_STATUS.SEND_MESSAGE_FAILED
             except Exception as e:
+                print(f"[C_STD_CAN] Send error on {self.channel_name}: {e}")
                 return self.CAN_STATUS.SEND_MESSAGE_FAILED
         else:
             return self.CAN_STATUS.SEND_CAN_BUS_NOT_OK
@@ -233,19 +238,13 @@ class C_STD_CAN():
             return self.CAN_STATUS.BUS_STATE_UNKNOWN
     
     def is_can_socket_available(self, channel_name: str) -> bool:
-        '''
-        检查给定的 CAN 端口是否存在。
-        '''
-        '''
-        Check if the given CAN port exists.
-        '''
+        # Only check /sys/class/net for socketcan on Linux
+        if self.bustype != "socketcan":
+            return self.CAN_STATUS.CHECK_CAN_EXIST
         try:
             with open(f"/sys/class/net/{channel_name}/operstate", "r") as file:
-                state = file.read().strip()
-                # return True
                 return  self.CAN_STATUS.CHECK_CAN_EXIST
-        except FileNotFoundError:
-            # return False
+        except Exception:
             return  self.CAN_STATUS.CAN_SOCKET_NOT_EXIST
     
     def is_can_port_up(self, channel_name: str) -> bool:
@@ -255,6 +254,9 @@ class C_STD_CAN():
         '''
         Check if the CAN port is in the UP state.
         '''
+        # Only check /sys/class/net for socketcan on Linux
+        if self.bustype != "socketcan":
+            return self.CAN_STATUS.CHECK_CAN_UP
         try:
             with open(f"/sys/class/net/{channel_name}/operstate", "r") as file:
                 state = file.read().strip()
@@ -300,24 +302,20 @@ class C_STD_CAN():
             return f"CAN port {channel_name} not found."
 
     def get_can_bitrate(self, channel_name: str) -> str:
-        '''
-        获取指定 CAN 端口的比特率。
-        '''
-        '''
-        Get the bit rate of the specified CAN port.
-        '''
+        # Only check bitrate via 'ip' for socketcan on Linux
+        if self.bustype != "socketcan":
+            return self.expected_bitrate
         try:
             result = subprocess.run(['ip', '-details', 'link', 'show', channel_name],
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     universal_newlines=True, check=True)  # Python 3.6
-                                    # capture_output=True, text=True)
             output = result.stdout
             for line in output.split('\n'):
                 if 'bitrate' in line:
                     return int(line.split('bitrate ')[1].split(' ')[0])
             return self.CAN_STATUS.CAN_BITRATE_SUCCESS
-        except Exception as e:
-            return self.CAN_STATUS.CAN_BITRATE_ERR, e
+        except Exception:
+            return self.expected_bitrate # Fallback to expected if check fails
 
 ## 示例代码
 # if __name__ == "__main__":
