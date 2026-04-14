@@ -31,6 +31,10 @@ import math
 import socket
 import json
 import queue
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 import libusb_package
 import usb.core
 import usb.backend.libusb1
@@ -398,6 +402,9 @@ class AriaPiperBridge:
                         f"{fps:.0f}fps"
                     )
 
+                # ── Interactive Calibration (Key handling) ─────────────────
+                self._handle_keys()
+
                 # ── Rate limiting (~50Hz max) ──────────────────────────────
                 elapsed = time.perf_counter() - loop_start
                 sleep_time = 0.02 - elapsed  # 50Hz target
@@ -476,6 +483,38 @@ class AriaPiperBridge:
                 self.grpc_stub.SendJointState(request, timeout=0.05)
             except Exception:
                 pass
+
+    def _handle_keys(self):
+        """Non-blocking keyboard handling for real-time calibration."""
+        if msvcrt is None or not msvcrt.kbhit():
+            return
+
+        try:
+            ch = msvcrt.getch().decode('utf-8').lower()
+            if ch == 'r':
+                print("[bridge] RE-CENTERING hand origin...")
+                self.mapper.reset_origin()
+            elif ch == '[':
+                self.args.workspace_scale = max(0.1, self.args.workspace_scale - 0.1)
+                self.mapper._workspace_scale = self.args.workspace_scale
+                print(f"[bridge] Scale DECREASED: {self.args.workspace_scale:.1f}")
+            elif ch == ']':
+                self.args.workspace_scale += 0.1
+                self.mapper._workspace_scale = self.args.workspace_scale
+                print(f"[bridge] Scale INCREASED: {self.args.workspace_scale:.1f}")
+            elif ch == 'o':
+                self.args.ik_orientation = not self.args.ik_orientation
+                state = "ENABLED" if self.args.ik_orientation else "DISABLED"
+                print(f"[bridge] 6-DOF Orientation {state}")
+            elif ch == 'h':
+                print("\n[bridge] Keyboard Controls:")
+                print("  R: Reset hand origin (re-center)")
+                print("  [: Decrease reach (workspace scale)")
+                print("  ]: Increase reach (workspace scale)")
+                print("  O: Toggle 6-DOF orientation")
+                print("  H: Show this help\n")
+        except Exception:
+            pass
 
     # ── Shutdown ───────────────────────────────────────────────────────────
     def _shutdown(self):

@@ -10,3 +10,7 @@ dist
 build
 install/
 log/
+aria_env/
+aria_win_env/
+.aria_ncm_iface
+fastdds_aria_unicast.generated.xml

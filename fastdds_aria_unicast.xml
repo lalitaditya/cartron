@@ -12,6 +12,11 @@
                         </locator>
                         <locator>
                             <udpv4>
+                                <address>10.131.198.86</address>
+                            </udpv4>
+                        </locator>
+                        <locator>
+                            <udpv4>
                                 <address>172.20.10.3</address>
                             </udpv4>
                         </locator>
@@ -21,6 +26,11 @@
                     <locator>
                         <udpv4>
                             <address>192.168.42.100</address>
+                        </udpv4>
+                    </locator>
+                    <locator>
+                        <udpv4>
+                            <address>10.131.209.25</address>
                         </udpv4>
                     </locator>
                 </defaultUnicastLocatorList>
