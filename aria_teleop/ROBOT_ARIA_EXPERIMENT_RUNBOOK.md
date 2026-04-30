@@ -7,6 +7,59 @@ Use this as your copy-paste checklist during AV testing.
 - Run Aria recording commands in `/home/aryan/cartron` as usual.
 - Keep laptop and robot on the same NTP source.
 
+## -1) Aria SDK Setup (New Laptop, One-Time)
+
+Run on the laptop that is connected to Aria glasses.
+
+```bash
+cd /home/aryan
+git clone https://github.com/lalitaditya/cartron.git
+cd cartron
+
+python3 -m venv aria_env
+source aria_env/bin/activate
+python -m pip install --upgrade pip
+
+# Core Aria + Python dependencies used by this repo
+python -m pip install \
+  projectaria-client-sdk==2.3.0 \
+  projectaria-tools==2.1.2 \
+  projectaria_eyetracking==1.0 \
+  opencv-python \
+  matplotlib \
+  numpy \
+  pandas \
+  scipy \
+  PyYAML
+```
+
+If `projectaria_eyetracking==1.0` is unavailable on your machine:
+
+```bash
+python -m pip install git+https://github.com/facebookresearch/projectaria_eyetracking.git
+```
+
+Quick import validation:
+
+```bash
+source /home/aryan/cartron/aria_env/bin/activate
+python - <<'PY'
+import aria.sdk as aria
+from projectaria_tools.core import calibration
+print("OK: aria.sdk and projectaria_tools imports work")
+PY
+```
+
+Optional eye-gaze model validation:
+
+```bash
+source /home/aryan/cartron/aria_env/bin/activate
+python - <<'PY'
+from projectaria_eyetracking.inference.infer import EyeGazeInference
+print("OK: projectaria_eyetracking import works")
+PY
+```
+
 ## 0) Time Sync Check (Both Machines)
 
 Run on laptop and robot:
