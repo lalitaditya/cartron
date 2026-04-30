@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "axis_calibration",
+  "axis_calibration": {
+    "calibration_scale_x": 0.95,
+    "calibration_scale_y": 0.9,
+    "pixel_offset_x": -20.0,
+    "pixel_offset_y": 0.0,
+    "description": "saved-axis-calibration scale=(0.950, 0.900) offset=(-20.0, 0.0)"
+  },
+  "source": {
+    "mode": "stationary_review",
+    "transform_mode": "anchor",
+    "aria_csv": "/home/aryan/cartron/recordings/case1_aria_20260421_134455/aria/aria_eye_20260421_134542/gaze_stream.csv",
+    "rosbag_dir": "/home/aryan/Downloads/rosbag2_2026_04_21-15_45_46"
+  }
+}
