@@ -7,7 +7,8 @@ class GazeMapper:
     Transforms Meta Aria eye gaze and head pose into the Vehicle/Robot frame.
     
     Frames:
-      - Aria (Device/Camera Frame): X-Right, Y-Down, Z-Forward
+      - Aria Device/Camera Frame: X-Right, Y-Down, Z-Forward
+      - Central Pupil Frame (CPF): X-Left, Y-Up, Z-Forward
       - Vehicle (ROS/Standard Frame): X-Forward, Y-Left, Z-Up
     """
 
@@ -18,10 +19,15 @@ class GazeMapper:
                                representing where the virtual 'driver eyes' are.
         """
         # Axis swap matrix (Aria Device -> Vehicle Base)
-        self._R_swap = np.array([
+        self._R_device_to_vehicle = np.array([
             [0,  0, 1],  # Veh X = Aria Z
             [-1, 0, 0],  # Veh Y = -Aria X
             [0, -1, 0]   # Veh Z = -Aria Y
+        ])
+        self._R_cpf_to_vehicle = np.array([
+            [0, 0, 1],  # Veh X = CPF Z
+            [1, 0, 0],  # Veh Y = CPF X
+            [0, 1, 0],  # Veh Z = CPF Y
         ])
         
         self.cam_offset = vehicle_cam_offset if vehicle_cam_offset is not None else np.zeros(3)
@@ -31,7 +37,7 @@ class GazeMapper:
         Transforms a unit gaze vector from Aria CPF frame to Vehicle frame.
         
         Args:
-            gaze_vec_aria: (3,) unit vector [x, y, z] in Aria space.
+            gaze_vec_aria: (3,) unit vector [x, y, z] in CPF space.
         Returns:
             (3,) unit vector [x, y, z] in Vehicle space.
         """
@@ -39,7 +45,7 @@ class GazeMapper:
         g_aria = np.array(gaze_vec_aria).flatten()
         
         # Apply the axis rotation
-        g_vehicle = self._R_swap @ g_aria
+        g_vehicle = self._R_cpf_to_vehicle @ g_aria
         
         # Re-normalize to ensure floating point errors don't drift the vector length
         norm = np.linalg.norm(g_vehicle)
@@ -61,7 +67,7 @@ class GazeMapper:
         p_aria = np.array(head_pos_aria)
         # Note: Since the USER is stationary, the Aria head_pos_aria is often [0,0,0]
         # or relative to an initial 'home' frame. We treat it as a delta to the vehicle seat.
-        p_vehicle = (self._R_swap @ p_aria) + self.cam_offset
+        p_vehicle = (self._R_device_to_vehicle @ p_aria) + self.cam_offset
         
         # 2. Orientation Transformation
         # We need to rotate the quaternion or the equivalent rotation matrix.
@@ -69,7 +75,7 @@ class GazeMapper:
         R_head_aria = self.quat_to_rot_matrix(head_rot_aria_quat)
         
         # R_vehicle = R_swap * R_head_aria * R_swap.T (Change of basis)
-        R_vehicle = self._R_swap @ R_head_aria @ self._R_swap.T
+        R_vehicle = self._R_device_to_vehicle @ R_head_aria @ self._R_device_to_vehicle.T
         
         q_vehicle = self.rot_matrix_to_quat(R_vehicle)
         

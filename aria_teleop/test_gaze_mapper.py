@@ -11,19 +11,17 @@ def test_gaze_transformation():
     print(f"Aria Fwd {g_aria_fwd} -> Veh Fwd {g_veh_fwd}")
     assert np.allclose(g_veh_fwd, [1, 0, 0]), "Aria Z should map to Vehicle X"
 
-    # 2. Aria Left (-1,0,0) -> Vehicle Left (0,1,0)
-    # Aria X is RIGHT (+), so -1 is LEFT.
-    g_aria_left = np.array([-1.0, 0, 0])
+    # 2. CPF Left (+1,0,0) -> Vehicle Left (0,1,0)
+    g_aria_left = np.array([1.0, 0, 0])
     g_veh_left = mapper.transform_gaze_vector(g_aria_left)
     print(f"Aria Left {g_aria_left} -> Veh Left {g_veh_left}")
-    assert np.allclose(g_veh_left, [0, 1, 0]), "Aria -X should map to Vehicle Y (Left)"
+    assert np.allclose(g_veh_left, [0, 1, 0]), "CPF +X should map to Vehicle Y (Left)"
 
-    # 3. Aria Up (0,-1,0) -> Vehicle Up (0,0,1)
-    # Aria Y is DOWN (+), so -1 is UP.
-    g_aria_up = np.array([0, -1.0, 0])
+    # 3. CPF Up (0,+1,0) -> Vehicle Up (0,0,1)
+    g_aria_up = np.array([0, 1.0, 0])
     g_veh_up = mapper.transform_gaze_vector(g_aria_up)
     print(f"Aria Up {g_aria_up} -> Veh Up {g_veh_up}")
-    assert np.allclose(g_veh_up, [0, 0, 1]), "Aria -Y should map to Vehicle Z (Up)"
+    assert np.allclose(g_veh_up, [0, 0, 1]), "CPF +Y should map to Vehicle Z (Up)"
 
 def test_head_pose_transformation():
     """Verify that 6-DOF transforms (Pos + Quat) work correctly."""
