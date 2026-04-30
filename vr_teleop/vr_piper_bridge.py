@@ -8,13 +8,16 @@ Receives VR controller pose via UDP, then:
   3. Optionally sends Cartesian EndPose to gRPC for the physical robot.
 """
 import argparse
+import time
+import socket
 import json
 import math
 import os
-import socket
 import sys
-import time
-from typing import List, Optional
+import platform
+import threading
+from concurrent import futures
+from typing import List, Optional, Tuple, Dict, Any
 
 import numpy as np
 
@@ -22,6 +25,8 @@ import numpy as np
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CARTRON_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, CARTRON_ROOT)
+# Add piper_teleop/ for gRPC protobuf imports
+sys.path.insert(0, os.path.join(CARTRON_ROOT, "piper_teleop"))
 
 # Optional ROS2 imports
 try:
@@ -41,6 +46,14 @@ try:
     GRPC_AVAILABLE = True
 except ImportError:
     GRPC_AVAILABLE = False
+
+# Piper SDK (for direct CAN control)
+try:
+    from piper_sdk import C_PiperInterface_V2
+    import platform
+    PIPER_SDK_AVAILABLE = True
+except ImportError:
+    PIPER_SDK_AVAILABLE = False
 
 # ─── Piper DH Parameters (from piper_sdk/kinematics/piper_fk.py, 2° offset) ──
 DH_A     = [0.0, 0.0, 285.03, -21.98, 0.0, 0.0]
@@ -200,10 +213,10 @@ class PiperIK:
 
     # ── IK solver ─────────────────────────────────────────────────────────
     # Damping factor for damped least-squares (prevents divergence near singularities)
-    DLS_LAMBDA = 5.0
+    DLS_LAMBDA = 2.0
     # Orientation weight: scales orientation error relative to position (mm vs rad).
-    # A value of 50 means 1 rad of orientation error ≈ 50mm of position error.
-    ORIENT_WEIGHT = 50.0
+    # Reduced to 30 to allow position priority during difficult reaches.
+    ORIENT_WEIGHT = 30.0
 
     @staticmethod
     def _wrap_angle(a):
@@ -212,17 +225,19 @@ class PiperIK:
 
     def solve(self, target_pos_mm, target_euler_rad=None,
               step_length=0.5, max_iter=25, pos_tol=2.0,
-              use_orientation=True):
+              use_orientation=True, orient_weight=None):
         """
         Iterative IK using analytical Jacobian + damped least-squares.
 
         Uses DLS: dq = Jᵀ (J Jᵀ + λ²I)⁻¹ dx
         Orientation error is weighted and angle-wrapped to prevent divergence.
+        orient_weight: per-call override for orientation scaling (default: self.ORIENT_WEIGHT).
         """
         joints = self.current_joints.copy()
         if target_euler_rad is None:
             use_orientation = False
 
+        ow = orient_weight if orient_weight is not None else self.ORIENT_WEIGHT
         lam2 = self.DLS_LAMBDA ** 2
 
         for _ in range(max_iter):
@@ -240,7 +255,7 @@ class PiperIK:
                 R = [[T_ee[r][c] for c in range(3)] for r in range(3)]
                 ee_euler = rotation_matrix_to_euler(R)
                 orient_err = [self._wrap_angle(target_euler_rad[k] - ee_euler[k])
-                              * self.ORIENT_WEIGHT for k in range(3)]
+                              * ow for k in range(3)]
             else:
                 orient_err = [0.0, 0.0, 0.0]
 
@@ -251,13 +266,59 @@ class PiperIK:
             JJt = J @ J.T + lam2 * np.eye(6)
             dq = J.T @ np.linalg.solve(JJt, dx)
 
+            # Clamp joint velocity to prevent divergence / "teleporting"
+            MAX_DQ = 0.15
             for j in range(NUM_JOINTS):
-                joints[j] += step_length * float(dq[j])
+                dq_val = step_length * float(dq[j])
+                dq_val = max(-MAX_DQ, min(MAX_DQ, dq_val))
+                joints[j] += dq_val
                 lo, hi = JOINT_LIMITS[j]
                 joints[j] = max(lo, min(hi, joints[j]))
 
         self.current_joints = joints
         return joints
+
+    # ── TCP-aware IK ──────────────────────────────────────────────────────
+    GRIPPER_TCP_OFFSET = 100.0  # mm from link6 to gripper contact point
+
+    def get_tcp_pos(self, joints):
+        """Compute the gripper TCP (finger contact point) in world frame."""
+        frames = self.compute_fk(joints)
+        T_ee = frames[6]
+        ee = [T_ee[0][3], T_ee[1][3], T_ee[2][3]]
+        z_axis = [T_ee[0][2], T_ee[1][2], T_ee[2][2]]
+        return [ee[i] + self.GRIPPER_TCP_OFFSET * z_axis[i] for i in range(3)]
+
+    def solve_tcp(self, target_tcp_mm, step_length=0.1, max_iter=20,
+                  tcp_tol=5.0, outer_iter=10):
+        """
+        Solve IK so the gripper TCP lands at `target_tcp_mm`.
+
+        Iteratively adjusts the EE (link6) target until the gripper fingertips
+        converge to the desired world position.
+        """
+        # Initial guess: EE target = TCP target (will be corrected)
+        ee_target = list(target_tcp_mm)
+
+        for i in range(outer_iter):
+            joints = self.solve(
+                ee_target,
+                target_euler_rad=None,
+                step_length=step_length,
+                max_iter=max_iter,
+                use_orientation=False
+            )
+            tcp_pos = self.get_tcp_pos(joints)
+            tcp_err = [target_tcp_mm[k] - tcp_pos[k] for k in range(3)]
+            tcp_dist = math.sqrt(sum(e*e for e in tcp_err))
+
+            if tcp_dist < tcp_tol:
+                break
+
+            # Adjust EE target by the TCP error
+            ee_target = [ee_target[k] + tcp_err[k] for k in range(3)]
+
+        return joints, tcp_pos
 
 
 # ─── Bridge ──────────────────────────────────────────────────────────────────────
@@ -281,18 +342,66 @@ class PiperBridgeNode:
             self.ros_node = Node('vr_piper_bridge')
             self.pose_pub = self.ros_node.create_publisher(PoseStamped, '/piper/pose_goal', 10)
             self.joint_pub = self.ros_node.create_publisher(JointState, '/joint_states', 10)
+            # Subscribe to detected object position (from object_detector.py)
+            from geometry_msgs.msg import PointStamped
+            self._detected_obj_pos = None
+            self._detected_obj_time = 0.0
+            self.ros_node.create_subscription(
+                PointStamped, '/detected_object/position',
+                self._on_detected_object, 10)
             print("[bridge] ROS2 publishers initialized.")
+            print("[bridge] Subscribed to /detected_object/position")
 
         # gRPC
         self.grpc_channel = None
         self.grpc_stub = None
         if args.grpc and GRPC_AVAILABLE:
             import grpc
-            self.grpc_channel = grpc.insecure_channel(f"{args.grpc_host}:{args.grpc_port}")
+            # Use TCP_NODELAY to disable Nagle's algorithm (critical for real-time)
+            options = [('grpc.tcp_nodelay', 1)]
+            self.grpc_channel = grpc.insecure_channel(f"{args.grpc_host}:{args.grpc_port}", 
+                                                    options=options)
             self.grpc_stub = robot_teleop_pb2_grpc.RobotServiceStub(self.grpc_channel)
+            # Thread pooling for non-blocking gRPC sends
+            self.executor = futures.ThreadPoolExecutor(max_workers=1)
+            self._last_grpc_joints = None
+            self._last_grpc_grip = None
+            self._grpc_lock = threading.Lock()
             print(f"[bridge] gRPC client initialized to {args.grpc_host}:{args.grpc_port}")
 
+        # Direct CAN control (physical arm)
+        self.piper = None
+        if args.can:
+            if not PIPER_SDK_AVAILABLE:
+                print("[bridge] ERROR: piper_sdk not found, --can disabled.")
+            else:
+                self._init_can(args.can_port)
+
         self._last_print = 0.0
+
+    # ── Detected object callback ────────────────────────────────────────────
+    def _on_detected_object(self, msg):
+        """Handle detected object position from object_detector.py."""
+        # Convert from meters (ROS) to mm (IK)
+        # The detector publishes in camera_optical_frame
+        # For Phase 1, we use a simple mapping:
+        # camera X → workspace Y (lateral), camera Y → workspace Z (vertical)
+        # camera Z → workspace X (forward/depth from camera)
+        # This is approximate — proper TF transform needed for Phase 2
+        x_mm = msg.point.z * 1000.0   # depth → forward
+        y_mm = -msg.point.x * 1000.0  # camera X → lateral (flipped)
+        z_mm = -msg.point.y * 1000.0  # camera Y → vertical (flipped)
+
+        # Offset to workspace frame (camera is on the arm, not at origin)
+        # For now, use the raw detection as a relative offset from camera
+        # and add to a base workspace position
+        # This will be replaced with proper TF in Phase 2
+        self._detected_obj_pos = [
+            300.0 + x_mm,   # base forward + detected offset
+            -100.0 + y_mm,  # base lateral + detected offset
+            max(20.0, z_mm) # clamp to at least 20mm above ground
+        ]
+        self._detected_obj_time = time.time()
 
     # ── Coordinate transform ──────────────────────────────────────────────
     def transform_pose(self, pos, quat):
@@ -307,16 +416,151 @@ class PiperBridgeNode:
         qx, qy, qz, qw = quat
         return [-qz, -qx, qy, qw]
 
+    # ── CAN initialization ─────────────────────────────────────────────────
+    def _init_can(self, can_port):
+        """Connect to the physical arm via CAN bus and enable motors."""
+        is_windows = platform.system() == "Windows"
+        print(f"[bridge] Connecting to arm via CAN on {can_port}...")
+
+        try:
+            if is_windows:
+                # Windows: SLCAN (serial CAN adapter)
+                self.piper = C_PiperInterface_V2(can_port, can_auto_init=False)
+                self.piper.CreateCanBus(can_port, bustype="slcan",
+                                       expected_bitrate=1000000, judge_flag=False)
+            else:
+                # Linux: socketcan
+                self.piper = C_PiperInterface_V2(can_port)
+
+            self.piper.ConnectPort()
+            print("[bridge] CAN connected. Enabling arm motors...")
+
+            # Enable with timeout
+            t0 = time.time()
+            while not self.piper.EnablePiper():
+                if time.time() - t0 > 10.0:
+                    print("[bridge] WARNING: Arm enable timed out after 10s. "
+                          "Continuing anyway — arm may not respond.")
+                    break
+                time.sleep(0.01)
+            else:
+                print("[bridge] Arm enabled!")
+
+        except Exception as e:
+            print(f"[bridge] CAN init failed: {e}")
+            self.piper = None
+
     # ── Main loop ─────────────────────────────────────────────────────────
     def run(self):
         print(f"[bridge] Listening for UDP on {self.args.bind_ip}:{self.args.udp_port}...")
         print("[bridge] IK: analytical Jacobian + pseudoinverse (6-DOF)")
         try:
             while True:
-                try:
-                    data, addr = self.sock.recvfrom(65535)
-                    msg = json.loads(data.decode('utf-8'))
-                except (socket.timeout, json.JSONDecodeError):
+                # Staged Auto-Grasp State Machine (TCP-Aware v6)
+                if self.args.auto_grasp:
+                    if not hasattr(self, '_auto_grasp_state'):
+                        # Seed with a stable "Crane" pose
+                        self.ik.current_joints = [0.0, 0.6, -0.8, 0.0, -1.1, 0.0]
+                        self._auto_grasp_state = "APPROACH"
+                        self._state_start_time = time.time()
+                        # Fallback object position if no detection
+                        self._obj_pos = [400.0, -100.0, 50.0]
+                        print(f"[bridge] Auto-Grasp Started (TCP-aware)")
+                        print(f"[bridge]    Default obj: X={self._obj_pos[0]:.0f} Y={self._obj_pos[1]:.0f} Z={self._obj_pos[2]:.0f} mm")
+                        print(f"[bridge]    Listening for /detected_object/position...")
+
+                    # Use detected position if available (within last 5s)
+                    if (self._detected_obj_pos is not None and
+                            time.time() - self._detected_obj_time < 5.0):
+                        self._obj_pos = self._detected_obj_pos
+
+                    obj = self._obj_pos
+                    grip_val = 0.0
+                    import math
+                    
+                    if self._auto_grasp_state == "APPROACH":
+                        # Hover 100mm above the object
+                        tcp_target = [obj[0], obj[1], obj[2] + 100.0]
+                    elif self._auto_grasp_state == "DIVE":
+                        # Directly at the object
+                        tcp_target = [obj[0], obj[1], obj[2]]
+                    elif self._auto_grasp_state == "GRASP":
+                        tcp_target = [obj[0], obj[1], obj[2]]
+                        grip_val = 0.035
+                    elif self._auto_grasp_state == "LIFT":
+                        tcp_target = [obj[0], obj[1], obj[2] + 100.0]
+                        grip_val = 0.035
+                    else:
+                        tcp_target = [obj[0], obj[1], obj[2] + 100.0]
+
+                    # TCP-aware IK: targets the gripper fingers, not link6
+                    joints, tcp_pos = self.ik.solve_tcp(
+                        tcp_target,
+                        step_length=0.1,
+                        max_iter=20,
+                        tcp_tol=5.0,
+                        outer_iter=8
+                    )
+
+                    # Distance from gripper TCP to target
+                    tcp_dist = math.sqrt(sum((tcp_target[i] - tcp_pos[i])**2 for i in range(3)))
+
+                    now = time.time()
+                    if self._auto_grasp_state == "APPROACH" and tcp_dist < 15.0:
+                        self._auto_grasp_state = "DIVE"
+                        print(f"[bridge] -> DIVE (TCP_Dist={tcp_dist:.1f}mm)")
+                        print(f"[bridge]    Gripper at: X={tcp_pos[0]:.1f} Y={tcp_pos[1]:.1f} Z={tcp_pos[2]:.1f}")
+                    elif self._auto_grasp_state == "DIVE" and tcp_dist < 15.0:
+                        self._auto_grasp_state = "GRASP"
+                        self._state_start_time = now
+                        print(f"[bridge] -> GRASP (TCP_Dist={tcp_dist:.1f}mm)")
+                        print(f"[bridge]    Gripper at: X={tcp_pos[0]:.1f} Y={tcp_pos[1]:.1f} Z={tcp_pos[2]:.1f}")
+                        print(f"[bridge]    Object at:  X={obj[0]:.1f} Y={obj[1]:.1f} Z={obj[2]:.1f}")
+                    elif self._auto_grasp_state == "GRASP" and (now - self._state_start_time) > 2.0:
+                        self._auto_grasp_state = "LIFT"
+                        print("[bridge] -> LIFT (Gripper closed)")
+                    elif self._auto_grasp_state == "LIFT" and tcp_dist < 15.0:
+                        self._auto_grasp_state = "DONE"
+                        print("[bridge] Auto-Grasp Sequence COMPLETE.")
+
+                    if self._auto_grasp_state == "DONE":
+                        # Keep publishing joint states so camera TF stays alive
+                        if self.ros_node:
+                            ros_pos = [tcp_target[0]/1000.0, tcp_target[1]/1000.0, tcp_target[2]/1000.0]
+                            ros_quat = [0.0, -0.7071, 0.0, 0.7071]
+                            self.publish_ros(ros_pos, ros_quat, joints, grip_val)
+                            rclpy.spin_once(self.ros_node, timeout_sec=0)
+                        time.sleep(0.05)
+                        continue
+
+                    # Logging
+                    if now - self._last_print > 1.0:
+                        self._last_print = now
+                        ee = self.ik.get_ee_pos(joints)
+                        print(f"[bridge] [AUTO:{self._auto_grasp_state}] TCP_Dist={tcp_dist:.1f}mm Grip={grip_val:.3f} | EE=({ee[0]:.0f},{ee[1]:.0f},{ee[2]:.0f}) TCP=({tcp_pos[0]:.0f},{tcp_pos[1]:.0f},{tcp_pos[2]:.0f})")
+
+                    if self.ros_node:
+                        ros_pos = [tcp_target[0]/1000.0, tcp_target[1]/1000.0, tcp_target[2]/1000.0]
+                        ros_quat = [0.0, -0.7071, 0.0, 0.7071]
+                        self.publish_ros(ros_pos, ros_quat, joints, grip_val)
+                        rclpy.spin_once(self.ros_node, timeout_sec=0)
+
+                    if self.piper:
+                        self.send_can(joints, grip_val)
+                    if self.grpc_stub:
+                        self.send_grpc(joints, grip_val)
+                    
+                    time.sleep(0.01)
+                    continue
+
+                if self.ros_node:
+                    rclpy.spin_once(self.ros_node, timeout_sec=0)
+
+                # Drain the socket buffer to get ONLY the latest packet
+
+                if msg is None:
+                    # No new packet received in this tick, wait a bit
+                    time.sleep(0.001)
                     continue
 
                 controllers = msg.get("controllers", {})
@@ -332,17 +576,26 @@ class PiperBridgeNode:
                     t_pos, _ = self.transform_pose(pos, quat)
                     r_quat = self.steamvr_quat_to_ros(quat)
 
-                    # Compute IK once, share between ROS + gRPC
+                    # Compute IK once, share between ROS + CAN + gRPC
                     joints, grip_pos = self.compute_ik(t_pos, r_quat, trigger)
 
                     if self.ros_node:
                         self.publish_ros(t_pos, r_quat, joints, grip_pos)
+                    if self.piper:
+                        self.send_can(joints, grip_pos)
                     if self.grpc_stub:
                         self.send_grpc(joints, grip_pos)
 
         except KeyboardInterrupt:
             print("\n[bridge] Interrupted, shutting down.")
         finally:
+            # Safety: disable arm first
+            if self.piper:
+                try:
+                    self.piper.DisableArm(7)
+                    print("[bridge] Arm disabled (safety).")
+                except Exception:
+                    pass
             if self.ros_node:
                 self.ros_node.destroy_node()
                 if rclpy.ok():
@@ -415,32 +668,79 @@ class PiperBridgeNode:
         js_msg.position = joints + [grip_pos, -grip_pos]
         self.joint_pub.publish(js_msg)
 
-    # ── gRPC (joint control) ───────────────────────────────────────────────
-    def send_grpc(self, joints, grip_pos):
-        """Send IK joint angles to the physical arm via gRPC.
+    # ── Direct CAN control (physical arm) ──────────────────────────────────
+    def send_can(self, joints, grip_pos):
+        """Send IK joint angles directly to the physical arm via CAN.
+        Calls MotionCtrl_2 every iteration (required by SDK).
         Converts radians → millidegrees (SDK unit = 0.001°).
         """
-        if not self.grpc_stub:
+        if not self.piper:
             return
         # Convert joint angles: radians → millidegrees
-        # SDK factor = 1000 * 180 / pi = 57295.7795
         j_mdeg = [round(joints[i] * RAD_TO_MDEG) for i in range(NUM_JOINTS)]
 
-        # Gripper: SDK expects gripper angle in ×1e6 units
-        # grip_pos is in meters (0–0.035m), convert to SDK range
-        gripper_val = round(grip_pos * 1_000_000)
+        # Gripper: grip_pos is 0–0.035m, SDK expects ×1e6 units
+        gripper_val = abs(round(grip_pos * 1_000_000))
 
         try:
-            request = robot_teleop_pb2.JointValues(
-                joints=[float(v) for v in j_mdeg],
-                gripper=float(gripper_val),
-                enable=True
-            )
-            self.grpc_stub.SendJointState(request)
+            # MUST call MotionCtrl_2 every iteration to keep arm in active mode
+            self.piper.MotionCtrl_2(0x01, 0x01, 50, 0x00)
+            self.piper.JointCtrl(j_mdeg[0], j_mdeg[1], j_mdeg[2],
+                                 j_mdeg[3], j_mdeg[4], j_mdeg[5])
+            self.piper.GripperCtrl(gripper_val, 1000, 0x01, 0)
         except Exception as e:
             now = time.time()
             if now - self._last_print > 5.0:
-                print(f"[bridge] gRPC error: {e}")
+                print(f"[bridge] CAN send error: {e}")
+
+    # ── gRPC (joint control, background threaded) ─────────────────────────
+    def send_grpc(self, joints, grip_pos):
+        """Queue latest joint values for background send without buildup."""
+        if not self.grpc_stub:
+            return
+        
+        # Convert to SDK units (millidegrees)
+        j_mdeg = [round(v * RAD_TO_MDEG) for v in joints]
+        gripper_val = round(grip_pos * 1_000_000)
+
+        # Update latest data.
+        with self._grpc_lock:
+            self._last_grpc_joints = j_mdeg
+            self._last_grpc_grip = gripper_val
+            
+            # If a worker is already running, it will pick up these fresh values
+            # when it finishes. No need to submit another task.
+            if getattr(self, '_grpc_busy', False):
+                return
+            self._grpc_busy = True
+
+        self.executor.submit(self._grpc_worker)
+
+    def _grpc_worker(self):
+        """Thread worker to perform the actual gRPC call."""
+        while True:
+            with self._grpc_lock:
+                if self._last_grpc_joints is None:
+                    self._grpc_busy = False
+                    return
+                joints = self._last_grpc_joints
+                grip = self._last_grpc_grip
+                self._last_grpc_joints = None # Consume the data
+
+            import robot_teleop_pb2
+            try:
+                request = robot_teleop_pb2.JointValues(
+                    joints=[float(v) for v in joints],
+                    gripper=float(grip),
+                    enable=True
+                )
+                # Physical network timeout
+                self.grpc_stub.SendJointState(request, timeout=0.05)
+            except Exception:
+                pass
+            
+            # After sending, we loop once more to see if fresh data 
+            # arrived while we were busy. If not, we exit and clear 'busy'.
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────────
@@ -450,6 +750,10 @@ def main():
     parser.add_argument("--bind-ip",   default="0.0.0.0")
     parser.add_argument("--udp-port",  type=int, default=5005)
     parser.add_argument("--ros",       action="store_true", help="Enable ROS2 publishing")
+    parser.add_argument("--can",       action="store_true",
+                        help="Enable direct CAN control of physical arm")
+    parser.add_argument("--can-port",  default=None,
+                        help="CAN port (COM5 on Windows, can0 on Linux). Auto-detected.")
     parser.add_argument("--grpc",      action="store_true", help="Enable gRPC client")
     parser.add_argument("--grpc-host", default="127.0.0.1")
     parser.add_argument("--grpc-port", type=int, default=50051)
@@ -461,7 +765,14 @@ def main():
                         help="Max IK iterations per frame (default 25)")
     parser.add_argument("--ik-orientation", action="store_true",
                         help="Include orientation in IK error (6-DOF)")
+    parser.add_argument("--auto-grasp", action="store_true",
+                        help="Bypass VR input and center arm on the test cube")
     args = parser.parse_args()
+
+    # Auto-detect CAN port if not specified
+    if args.can and args.can_port is None:
+        import platform as _plat
+        args.can_port = "COM5" if _plat.system() == "Windows" else "can0"
 
     bridge = PiperBridgeNode(args)
     bridge.run()

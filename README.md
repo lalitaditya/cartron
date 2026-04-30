@@ -3,7 +3,41 @@
 This repository contains the SDK, drivers, and custom control scripts for the Piper robot arm.
 It is a repackaged version of the `piper_sdk` designed for ease of use with the **Cartron** project.
 
-## 🚀 Quick Start
+---
+
+## 🥽 VR Teleoperation (Zero-Lag Pipeline)
+
+Control the physical Piper robot arm using a VR headset over a dual-machine network setup.
+
+### 💻 Windows Laptop (VR Machine)
+Run these commands in three separate terminals:
+
+1. **Start VR Controller Sync**:
+   ```bash
+   python vr_teleop\vr_udp_sender.py
+   ```
+
+2. **Start VR-to-Robot Bridge** (Optimization: Background threading & TCP_NODELAY):
+   ```bash
+   python vr_teleop\vr_piper_bridge.py --ros --grpc --grpc-host 10.131.184.135
+   ```
+
+3. **Start RViz Visualization** (Optional):
+   ```bash
+   ros2 launch vr_teleop\launch_piper_rviz.py
+   ```
+
+### 🐧 Linux Laptop (Arm Control Machine)
+Run this command to start the state-based high-speed control server:
+
+1. **Start Slave Controller**:
+   ```bash
+   python slave.py
+   ```
+
+---
+
+## 🚀 Quick Start (Local Setup)
 
 We provide a helper script to handle CAN initialization and environment activation.
 
