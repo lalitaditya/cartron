@@ -5,6 +5,14 @@ It is a repackaged version of the `piper_sdk` designed for ease of use with the 
 
 ---
 
+## Aria + AV Experiments (Start Here)
+
+Use this single runbook for end-to-end Aria + robot camera experiments:
+
+`ARIA_AV_EXPERIMENT_MASTER_RUNBOOK.md`
+
+---
+
 ## 🥽 VR Teleoperation (Zero-Lag Pipeline)
 
 Control the physical Piper robot arm using a VR headset over a dual-machine network setup.
@@ -14,17 +22,17 @@ Run these commands in three separate terminals:
 
 1. **Start VR Controller Sync**:
    ```bash
-   python vr_teleop\vr_udp_sender.py
+   python /home/aryan/arm_teleop/vr_teleop/vr_udp_sender.py
    ```
 
 2. **Start VR-to-Robot Bridge** (Optimization: Background threading & TCP_NODELAY):
    ```bash
-   python vr_teleop\vr_piper_bridge.py --ros --grpc --grpc-host 10.131.184.135
+   python /home/aryan/arm_teleop/vr_teleop/vr_piper_bridge.py --ros --grpc --grpc-host 10.131.184.135
    ```
 
 3. **Start RViz Visualization** (Optional):
    ```bash
-   ros2 launch vr_teleop\launch_piper_rviz.py
+   ros2 launch /home/aryan/arm_teleop/vr_teleop/launch_piper_rviz.py
    ```
 
 ### 🐧 Linux Laptop (Arm Control Machine)
@@ -129,6 +137,42 @@ A graphical interface to control the robot, view status, and manage settings.
 
 -   **CAN Error**: If you see `CAN port can0 is not UP`, simply run `./quick_start.sh` again.
 -   **Permission Denied**: `quick_start.sh` and other scripts must be executable (`chmod +x script.sh`).
+
+### CAN Debug Quick Checklist (Easy to Find)
+
+If the arm node starts but logs errors like:
+- `can0 has no CAN feedback yet; waiting...`
+- `SendCanMessage(SEND_MESSAGE_FAILED)`
+- `Failed to transmit: No buffer space available`
+
+run this sequence:
+
+1. Reset CAN cleanly:
+   ```bash
+   sudo ip link set can0 down
+   sudo ip link set can0 type can bitrate 1000000 restart-ms 100
+   sudo ip link set can0 up
+   ip -details -statistics link show can0
+   ```
+
+2. Watch raw CAN traffic:
+   ```bash
+   candump -tz can0
+   ```
+
+3. In another terminal, start the driver:
+   ```bash
+   cd /home/aryan/cartron/src/piper_ros
+   source /opt/ros/humble/setup.bash
+   source /home/aryan/cartron/src/piper_ros/install/setup.bash
+   bash can_activate.sh can0 1000000
+   ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2 auto_enable:=false
+   ```
+
+4. Interpret quickly:
+   - If `candump` shows frames but ROS topics stay zeros, check node parsing/config.
+   - If `candump` shows no frames and `RX` stays `0`, this is bus/hardware side (power, CANH/CANL, GND, termination, pinout).
+   - If `candump` says `read: Network is down`, bring `can0` up first (step 1).
 
 ---
 *Based on AgileX Piper SDK.*

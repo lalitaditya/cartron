@@ -54,4 +54,4 @@ if (Test-Path $xml_path) {
 }
 
 Write-Host "`nReady for teleoperation!" -ForegroundColor Cyan
-Write-Host "Run the bridge with: python aria_teleop/aria_piper_bridge.py --udp --can --mirror"
+Write-Host "Run the bridge with: python /home/aryan/arm_teleop/aria_teleop/aria_teleop/aria_piper_bridge.py --udp --can --mirror"

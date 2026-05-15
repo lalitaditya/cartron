@@ -10,7 +10,7 @@ import threading
 import argparse
 import math
 from piper_sdk import *
-from piper_sdk import C_PiperInterface
+from piper_sdk import C_PiperInterface_V2
 from piper_msgs.msg import PiperStatusMsg, PosCmd
 from piper_msgs.srv import Enable
 from geometry_msgs.msg import Pose, PoseStamped
@@ -69,8 +69,9 @@ class PiperRosNode(Node):
         # Enable flag
         self.__enable_flag = False
         # Create piper class and open CAN interface
-        self.piper = C_PiperInterface(can_name=self.can_port)
+        self.piper = C_PiperInterface_V2(can_name=self.can_port)
         self.piper.ConnectPort()
+        self._last_can_ok_log_time = 0.0
 
         # Start subscription thread
         self.create_subscription(PosCmd, 'pos_cmd', self.pos_callback, 1)
@@ -128,9 +129,11 @@ class PiperRosNode(Node):
                 self.PublishArmCtrlAndGripper()
                 self.PublishArmEndPose()
             else:
-                self.get_logger().error(f"{self.can_port} is loss")
-                self.get_logger().error(f"exit...")
-                rclpy.shutdown() 
+                # Keep node alive to allow CAN recovery/re-enable instead of hard-exiting immediately.
+                now = time.time()
+                if now - self._last_can_ok_log_time > 1.0:
+                    self.get_logger().error(f"{self.can_port} has no CAN feedback yet; waiting...")
+                    self._last_can_ok_log_time = now
 
             rate.sleep()
 
@@ -431,4 +434,5 @@ def main(args=None):
         pass
     finally:
         piper_single_node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
