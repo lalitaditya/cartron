@@ -107,7 +107,26 @@ If the arm node starts but logs errors like:
 
 run this sequence:
 
-1. Reset CAN cleanly:
+1. Stop ROS/CAN users first:
+   ```bash
+   pkill -f piper_single_ctrl || true
+   pkill -f ros2 || true
+   pkill -f candump || true
+   ```
+
+2. Bring CAN up:
+   ```bash
+   cd /home/aryan/cartron/src/piper_ros
+   bash can_activate.sh can0 1000000
+   ip -details -statistics link show can0
+   ```
+
+3. Monitor raw bus:
+   ```bash
+   candump -tz can0
+   ```
+
+4. If `can0` is still down, do a manual reset:
    ```bash
    sudo ip link set can0 down
    sudo ip link set can0 type can bitrate 1000000 restart-ms 100
@@ -115,12 +134,7 @@ run this sequence:
    ip -details -statistics link show can0
    ```
 
-2. Watch raw CAN traffic:
-   ```bash
-   candump -tz can0
-   ```
-
-3. In another terminal, start the driver:
+5. In another terminal, start the driver:
    ```bash
    cd /home/aryan/cartron/src/piper_ros
    source /opt/ros/humble/setup.bash
@@ -129,7 +143,7 @@ run this sequence:
    ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2 auto_enable:=false
    ```
 
-4. Interpret quickly:
+6. Interpret quickly:
    - If `candump` shows frames but ROS topics stay zeros, check node parsing/config.
    - If `candump` shows no frames and `RX` stays `0`, this is bus/hardware side (power, CANH/CANL, GND, termination, pinout).
    - If `candump` says `read: Network is down`, bring `can0` up first (step 1).
@@ -177,6 +191,15 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/piper_sdk
 ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2
 ```
 
+#### Terminal 1.5: Enable the Real Arm (Easy to Miss)
+If the physical arm does not move, enable it explicitly:
+
+```bash
+source /opt/ros/humble/setup.bash
+source /home/aryan/cartron/src/piper_ros/install/setup.bash
+ros2 service call /enable_srv piper_msgs/srv/Enable "{enable_request: true}"
+```
+
 #### Terminal 2: MoveIt Planning
 Responsible for path planning and visualization.
 
@@ -203,10 +226,11 @@ ros2 launch piper_with_gripper_moveit demo.launch.py
 ### 🔧 Troubleshooting
 
 -   **Robot Not Moving?**
-    Check if the robot is **Enabled**. The logs in Terminal 1 should say .
-    To manually enable:
+    Check if the robot is **Enabled**. To manually enable:
     ```bash
-    ros2 topic pub --once /enable_flag std_msgs/msg/Bool "{data: true}"
+    source /opt/ros/humble/setup.bash
+    source /home/aryan/cartron/src/piper_ros/install/setup.bash
+    ros2 service call /enable_srv piper_msgs/srv/Enable "{enable_request: true}"
     ```
 
 -   **Dependencies Missing?**

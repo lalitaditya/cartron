@@ -209,9 +209,25 @@ class C_STD_CAN():
             # except can.CanError:
             #     return self.CAN_STATUS.SEND_MESSAGE_FAILED
             except Exception as e:
-                print(f"[C_STD_CAN] Send error on {self.channel_name}: {e}")
+                # Rich debug print to reproduce/compare repeated failures.
+                bus_state_after = self.is_can_bus_ok()
+                print(
+                    "[C_STD_CAN][SEND_FAIL] "
+                    f"ch={self.channel_name} bustype={self.bustype} "
+                    f"arb_id=0x{int(arbitration_id):03X} dlc={dlc} ext={is_extended_id} "
+                    f"data={list(data)} "
+                    f"bus_state_before={bus_state.name} bus_state_after={bus_state_after.name} "
+                    f"err={type(e).__name__}: {e}"
+                )
                 return self.CAN_STATUS.SEND_MESSAGE_FAILED
         else:
+            print(
+                "[C_STD_CAN][BUS_NOT_OK] "
+                f"ch={self.channel_name} bustype={self.bustype} "
+                f"arb_id=0x{int(arbitration_id):03X} dlc={dlc} ext={is_extended_id} "
+                f"data={list(data)} "
+                f"bus_state={bus_state.name}"
+            )
             return self.CAN_STATUS.SEND_CAN_BUS_NOT_OK
 
     def is_can_bus_ok(self) -> bool:
