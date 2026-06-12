@@ -8,6 +8,10 @@ DEFAULT_BITRATE="${2:-1000000}"
 
 # USB hardware address (optional parameter)
 USB_ADDRESS="${3}"
+
+# Linux SocketCAN transmit queue length. A larger value tolerates short bursts,
+# but it will not fix a CAN bus that is not physically draining.
+TX_QUEUE_LEN="${4:-5000}"
 echo "-------------------START-----------------------"
 # Check if ethtool is installed.
 if ! dpkg -l | grep -q "ethtool"; then
@@ -106,9 +110,11 @@ if [ "$IS_LINK_UP" = "yes" ] && [ "$CURRENT_BITRATE" -eq "$DEFAULT_BITRATE" ]; t
         echo "Rename interface $INTERFACE_NAME to $DEFAULT_CAN_NAME."
         sudo ip link set "$INTERFACE_NAME" down
         sudo ip link set "$INTERFACE_NAME" name "$DEFAULT_CAN_NAME"
+        sudo ip link set "$DEFAULT_CAN_NAME" txqueuelen "$TX_QUEUE_LEN"
         sudo ip link set "$DEFAULT_CAN_NAME" up
         echo "The interface has been renamed to $DEFAULT_CAN_NAME and reactivated."
     else
+        sudo ip link set "$INTERFACE_NAME" txqueuelen "$TX_QUEUE_LEN"
         echo "The interface name is already $DEFAULT_CAN_NAME."
     fi
 else
@@ -121,7 +127,8 @@ else
     
     # Set the interface bitrate and activate it.
     sudo ip link set "$INTERFACE_NAME" down
-    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE
+    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE restart-ms 100
+    sudo ip link set "$INTERFACE_NAME" txqueuelen "$TX_QUEUE_LEN"
     sudo ip link set "$INTERFACE_NAME" up
     echo "Interface $INTERFACE_NAME has been reset to bitrate $DEFAULT_BITRATE and activated."
     
@@ -130,6 +137,7 @@ else
         echo "Rename interface $INTERFACE_NAME to $DEFAULT_CAN_NAME."
         sudo ip link set "$INTERFACE_NAME" down
         sudo ip link set "$INTERFACE_NAME" name "$DEFAULT_CAN_NAME"
+        sudo ip link set "$DEFAULT_CAN_NAME" txqueuelen "$TX_QUEUE_LEN"
         sudo ip link set "$DEFAULT_CAN_NAME" up
         echo "The interface has been renamed to $DEFAULT_CAN_NAME and reactivated."
     fi

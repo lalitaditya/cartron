@@ -8,6 +8,10 @@ DEFAULT_BITRATE="${2:-1000000}"
 
 # USB hardware address (optional parameter)
 USB_ADDRESS="${3}"
+
+# Linux SocketCAN transmit queue length. A larger value tolerates short bursts,
+# but it will not fix a CAN bus that is not physically draining.
+TX_QUEUE_LEN="${4:-5000}"
 echo "-------------------START-----------------------"
 # Check if ethtool is installed.
 if ! dpkg -l | grep -q "ethtool"; then
@@ -26,6 +30,15 @@ if ! dpkg -l | grep -q "can-utils"; then
 fi
 
 echo "Both ethtool and can-utils are installed."
+
+# Load the common USB-CAN kernel module before counting CAN interfaces. Without
+# this, gs_usb/candleLight-style adapters can appear on USB but never create a
+# canX network interface.
+sudo modprobe gs_usb
+if [ $? -ne 0 ]; then
+    echo "Error: Unable to load the gs_usb module."
+    exit 1
+fi
 
 # Retrieve the number of CAN modules in the current system.
 CURRENT_CAN_COUNT=$(ip link show type can | grep -c "link/can")
@@ -46,19 +59,13 @@ if [ "$CURRENT_CAN_COUNT" -ne "1" ]; then
             echo "Interface $iface is inserted into USB port $BUS_INFO"
         done
         echo -e " Error: The number of CAN modules detected by the system ($CURRENT_CAN_COUNT) does not match the expected number (1). "
+        echo -e " If this number is 0, unplug/replug the USB-CAN adapter and check: lsusb, lsusb -t, sudo dmesg | tail -80"
         echo -e " Please add the USB hardware address parameter, such as: "
         echo -e " bash can_activate.sh can0 1000000 1-2:1.0"
         echo "-------------------ERROR-----------------------"
         exit 1
     fi
 fi
-
-# Load the gs_usb module.
-# sudo modprobe gs_usb
-# if [ $? -ne 0 ]; then
-#     echo "Error: Unable to load the gs_usb module."
-#     exit 1
-# fi
 
 if [ -n "$USB_ADDRESS" ]; then
     echo "Detected USB hardware address parameter: $USB_ADDRESS"
@@ -106,9 +113,11 @@ if [ "$IS_LINK_UP" = "yes" ] && [ "$CURRENT_BITRATE" -eq "$DEFAULT_BITRATE" ]; t
         echo "Rename interface $INTERFACE_NAME to $DEFAULT_CAN_NAME."
         sudo ip link set "$INTERFACE_NAME" down
         sudo ip link set "$INTERFACE_NAME" name "$DEFAULT_CAN_NAME"
+        sudo ip link set "$DEFAULT_CAN_NAME" txqueuelen "$TX_QUEUE_LEN"
         sudo ip link set "$DEFAULT_CAN_NAME" up
         echo "The interface has been renamed to $DEFAULT_CAN_NAME and reactivated."
     else
+        sudo ip link set "$INTERFACE_NAME" txqueuelen "$TX_QUEUE_LEN"
         echo "The interface name is already $DEFAULT_CAN_NAME."
     fi
 else
@@ -121,7 +130,8 @@ else
     
     # Set the interface bitrate and activate it.
     sudo ip link set "$INTERFACE_NAME" down
-    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE
+    sudo ip link set "$INTERFACE_NAME" type can bitrate $DEFAULT_BITRATE restart-ms 100
+    sudo ip link set "$INTERFACE_NAME" txqueuelen "$TX_QUEUE_LEN"
     sudo ip link set "$INTERFACE_NAME" up
     echo "Interface $INTERFACE_NAME has been reset to bitrate $DEFAULT_BITRATE and activated."
     
@@ -130,6 +140,7 @@ else
         echo "Rename interface $INTERFACE_NAME to $DEFAULT_CAN_NAME."
         sudo ip link set "$INTERFACE_NAME" down
         sudo ip link set "$INTERFACE_NAME" name "$DEFAULT_CAN_NAME"
+        sudo ip link set "$DEFAULT_CAN_NAME" txqueuelen "$TX_QUEUE_LEN"
         sudo ip link set "$DEFAULT_CAN_NAME" up
         echo "The interface has been renamed to $DEFAULT_CAN_NAME and reactivated."
     fi

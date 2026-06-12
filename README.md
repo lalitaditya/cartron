@@ -82,11 +82,110 @@ A graphical interface to control the robot, view status, and manage settings.
 
 👉 **[Full UI Documentation (Steps & Controls)](ui/README(EN).md)**
 
+### 🤖 ROS 2 Driver
+Builds the ROS workspace if needed, activates CAN, sources the local ROS install, and launches the Piper driver.
+
+```bash
+./quick_start_ros.sh
+```
+
+To pass ROS launch arguments:
+
+```bash
+./quick_start_ros.sh log_level:=warn auto_enable:=false
+```
+
+### Real-Time Low-Level Teleop Through Bridge
+
+The low-level teleop scripts are organized here:
+
+```text
+piper_teleop/High-Level control/smooth_joint_trajectory.py
+piper_teleop/Low level control/bridge/trajectory_to_jointstate_bridge.py
+piper_teleop/Low level control/keyboard_teleop/realtime_joint_teleop.py
+piper_teleop/Low level control/keyboard_teleop/publish_joint_command.py
+piper_teleop/Low level control/vr_teleop/joy_joint_teleop.py
+```
+
+Use these three terminals for keyboard real-time control:
+
+Terminal 1, hardware driver:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash && source install/setup.bash
+export PYTHONPATH=/home/tejaszz12/cartron:$PYTHONPATH
+ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2
+```
+
+Terminal 2, trajectory bridge:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash && source install/setup.bash
+python3 "/home/tejaszz12/cartron/piper_teleop/Low level control/bridge/trajectory_to_jointstate_bridge.py"
+```
+
+Terminal 3, keyboard teleop:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash && source install/setup.bash
+python3 "/home/tejaszz12/cartron/piper_teleop/Low level control/keyboard_teleop/realtime_joint_teleop.py" --step 0.01 --speed 10
+```
+
+Topic flow:
+
+```text
+keyboard/VR teleop -> /arm_controller/joint_trajectory
+trajectory bridge  -> /joint_ctrl_cmd
+hardware driver    -> CAN
+```
+
+For joystick control, start a `/joy` publisher and replace Terminal 3 with:
+
+```bash
+python3 "/home/tejaszz12/cartron/piper_teleop/Low level control/vr_teleop/joy_joint_teleop.py" --joint-speed 0.15 --speed-percent 10
+```
+
+### Perception Camera Check
+
+The OAK/DepthAI USB camera should appear in `lsusb` as:
+
+```text
+03e7:2485 Intel Movidius MyriadX
+```
+
+If DepthAI reports `Insufficient permissions to communicate with X_LINK_UNBOOTED`, install the udev rule once:
+
+```bash
+echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="03e7", MODE="0666", GROUP="plugdev"' | sudo tee /etc/udev/rules.d/80-movidius.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Then unplug and replug the camera. Test RGB capture:
+
+```bash
+cd /home/tejaszz12/cartron
+python3 piper_teleop/Perception/depthai_health_check.py
+```
+
+Open a live RGB camera window:
+
+```bash
+cd /home/tejaszz12/cartron
+python3 piper_teleop/Perception/depthai_health_check.py --show
+```
+
+Press `q` or `Esc` to close the window.
+
 ---
 
 ## 📂 Project Structure
 
 -   `quick_start.sh`: **Main entry point**. Sets up CAN and environment.
+-   `quick_start_ros.sh`: Builds/sources the ROS 2 workspace and launches the Piper driver.
 -   `piper_sdk/`: Core SDK Python package.
 -   `piper_sdk/demo/V2/`:
     -   `piper_wave.py`: **Custom waving demo**.
@@ -116,7 +215,7 @@ run this sequence:
 
 2. Bring CAN up:
    ```bash
-   cd /home/aryan/cartron/src/piper_ros
+   cd /home/tejaszz12/cartron/src/piper_ros
    bash can_activate.sh can0 1000000
    ip -details -statistics link show can0
    ```
@@ -136,9 +235,9 @@ run this sequence:
 
 5. In another terminal, start the driver:
    ```bash
-   cd /home/aryan/cartron/src/piper_ros
+   cd /home/tejaszz12/cartron/src/piper_ros
    source /opt/ros/humble/setup.bash
-   source /home/aryan/cartron/src/piper_ros/install/setup.bash
+   source /home/tejaszz12/cartron/src/piper_ros/install/setup.bash
    bash can_activate.sh can0 1000000
    ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2 auto_enable:=false
    ```
@@ -159,9 +258,11 @@ This repository now includes **ROS 2 Humble** support with **MoveIt 2** for moti
 
 ### 1. Build the Workspace
 
-From the root of  (or your workspace):
+From the ROS workspace:
 
 ```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+
 # Install dependencies
 rosdep install --from-paths src --ignore-src -r -y
 
@@ -177,7 +278,7 @@ You will need **Two Terminals**.
 Responsible for communicating with the arm via CAN.
 
 ```bash
-cd cartron  # or workspace root
+cd /home/tejaszz12/cartron/src/piper_ros
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -185,7 +286,7 @@ source install/setup.bash
 sudo ip link set can0 up type can bitrate 1000000
 
 # Add piper_sdk to path (CRITICAL)
-export PYTHONPATH=$PYTHONPATH:$(pwd)/piper_sdk
+export PYTHONPATH=/home/tejaszz12/cartron:$PYTHONPATH
 
 # Launch Driver
 ros2 launch piper start_single_piper.launch.py gripper_val_mutiple:=2
@@ -196,7 +297,7 @@ If the physical arm does not move, enable it explicitly:
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/aryan/cartron/src/piper_ros/install/setup.bash
+source /home/tejaszz12/cartron/src/piper_ros/install/setup.bash
 ros2 service call /enable_srv piper_msgs/srv/Enable "{enable_request: true}"
 ```
 
@@ -204,7 +305,7 @@ ros2 service call /enable_srv piper_msgs/srv/Enable "{enable_request: true}"
 Responsible for path planning and visualization.
 
 ```bash
-cd cartron  # or workspace root
+cd /home/tejaszz12/cartron/src/piper_ros
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -212,9 +313,152 @@ source install/setup.bash
 ros2 launch piper_with_gripper_moveit demo.launch.py
 ```
 
-(Use  if you don't have a gripper).
+(Use `piper_no_gripper_moveit` if you don't have a gripper).
 
-### 3. Simulation Mode (No Robot)
+Or use the helper from the repository root:
+
+```bash
+./quick_start_moveit.sh
+```
+
+### 3. MoveIt Servo Twist Control
+
+MoveIt Servo is the programmatic real-time control path. It accepts Cartesian velocity commands as `geometry_msgs/msg/TwistStamped`, converts them to joint trajectory commands, and sends them to the arm controller.
+
+Command path:
+
+```text
+TwistStamped publisher
+  -> /servo_node/delta_twist_cmds
+  -> MoveIt Servo
+  -> /arm_controller/joint_trajectory
+  -> ros2_control arm_controller
+```
+
+Start Servo after the robot driver and controllers are running:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch piper_with_gripper_moveit servo.launch.py
+```
+
+Send a small test command from another terminal:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 run piper_with_gripper_moveit publish_servo_twist.py --linear-x 0.01 --duration 1.0
+```
+
+The Servo parameters live in:
+
+```text
+src/piper_ros/src/piper_moveit/piper_with_gripper_moveit/config/servo/servo_parameters.yaml
+```
+
+### 4. AprilTag 10 cm Standoff Test
+
+This runs the external DepthAI/OAK camera AprilTag detector, transforms the detected tag center into the robot base frame, and asks MoveIt to move the gripper tip to a fixed standoff above the tag. Start with `--plan-only`; use `--enable` only after the plan and CAN feedback look healthy.
+
+Terminal 1, Piper hardware driver:
+
+```bash
+cd /home/tejaszz12/cartron
+bash can_activate.sh can0 1000000 "" 10000
+
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash && source install/setup.bash
+export PYTHONPATH=/home/tejaszz12/cartron:$PYTHONPATH
+
+ros2 launch piper start_single_piper.launch.py \
+  gripper_val_mutiple:=2 \
+  auto_enable_timeout:=20.0 \
+  enable_service_timeout:=20.0
+```
+
+Leave this terminal running. Wait for `Enable status: True`; if it later prints `can0 has no CAN feedback yet`, fix CAN before continuing.
+
+Terminal 2, trajectory bridge:
+
+```bash
+cd /home/tejaszz12/cartron
+source /opt/ros/humble/setup.bash && source src/piper_ros/install/setup.bash
+
+python3 "piper_teleop/Low level control/bridge/trajectory_to_jointstate_bridge.py" \
+  --ros-args \
+  -p max_publish_rate:=15.0
+```
+
+Terminal 3, MoveIt:
+
+```bash
+cd /home/tejaszz12/cartron/src/piper_ros
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+ros2 launch piper_with_gripper_moveit piper_moveit.launch.py
+```
+
+Terminal 4, AprilTag standoff planner:
+
+```bash
+cd /home/tejaszz12/cartron
+source /opt/ros/humble/setup.bash && source src/piper_ros/install/setup.bash
+export PYTHONPATH=/home/tejaszz12/cartron:$PYTHONPATH
+
+python3 piper_teleop/Planning/apriltag_grasp_demo.py \
+  --dictionary DICT_APRILTAG_36h11 \
+  --tag-size-m 0.08 \
+  --depth-source stereo \
+  --stereo-preset FAST_DENSITY \
+  --frame-color-mode bgr \
+  --fx 514.80883789 \
+  --fy 514.80883789 \
+  --cx 323.42358398 \
+  --cy 244.64537048 \
+  --standoff-m 0.10 \
+  --camera-x YOUR_CAMERA_X \
+  --camera-y YOUR_CAMERA_Y \
+  --camera-z YOUR_CAMERA_Z \
+  --camera-roll YOUR_CAMERA_ROLL \
+  --camera-pitch YOUR_CAMERA_PITCH \
+  --camera-yaw YOUR_CAMERA_YAW \
+  --velocity-scaling 0.03 \
+  --acceleration-scaling 0.03 \
+  --stable-samples 5 \
+  --stable-position-tolerance 0.015 \
+  --gripper-backend none \
+  --plan-only
+```
+
+Replace the `YOUR_CAMERA_*` values with the output from the calibration command below. Once `--plan-only` succeeds and the target is plausible, rerun Terminal 4 with `--enable` instead of `--plan-only`.
+
+One-shot manual calibration for `YOUR_CAMERA_*`:
+
+```bash
+cd /home/tejaszz12/cartron
+source /opt/ros/humble/setup.bash && source src/piper_ros/install/setup.bash
+
+python3 piper_teleop/Perception/apriltag_point_pair_calibrator.py \
+  --dictionary DICT_APRILTAG_36h11 \
+  --frame-color-mode bgr \
+  --base-source manual \
+  --depth-source stereo \
+  --stereo-preset FAST_DENSITY \
+  --fx 514.80883789 \
+  --fy 514.80883789 \
+  --cx 323.42358398 \
+  --cy 244.64537048 \
+  --solve-mode fixed_rpy \
+  --solve-after 1 \
+  --last-tag-timeout 0
+```
+
+When the tag is detected, type the measured tag-center position in the robot base frame as `x y z` in meters. This one-shot mode only solves translation while assuming fixed camera RPY; if the camera is tilted differently, use multi-point calibration or closed-loop visual servoing instead.
+
+### 5. Simulation Mode (No Robot)
 
 If you don't have the hardware connected:
 
@@ -229,14 +473,14 @@ ros2 launch piper_with_gripper_moveit demo.launch.py
     Check if the robot is **Enabled**. To manually enable:
     ```bash
     source /opt/ros/humble/setup.bash
-    source /home/aryan/cartron/src/piper_ros/install/setup.bash
+    source /home/tejaszz12/cartron/src/piper_ros/install/setup.bash
     ros2 service call /enable_srv piper_msgs/srv/Enable "{enable_request: true}"
     ```
 
 -   **Dependencies Missing?**
     If  fails, ensure you have installed:
     ```bash
-    sudo apt install ros-humble-moveit* ros-humble-ros2-control* ros-humble-ros2-controllers*
+    sudo apt install ros-humble-moveit ros-humble-ros2-control ros-humble-ros2-controllers
     ```
 
 ---

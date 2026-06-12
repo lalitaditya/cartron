@@ -1,0 +1,65 @@
+###############################################
+# Piper MoveIt Servo parameters
+###############################################
+#
+# Incoming Cartesian commands are geometry_msgs/msg/TwistStamped messages.
+# Publish them on /servo_node/delta_twist_cmds.
+#
+# Servo converts those twists to joint trajectory commands and publishes them
+# to /arm_controller/joint_trajectory.
+
+use_gazebo: false
+
+## Properties of incoming commands
+# Use real velocity units: linear m/s and angular rad/s.
+command_in_type: "speed_units"
+scale:
+  # Scale values are only used when command_in_type is "unitless".
+  linear: 0.05
+  rotational: 0.20
+  joint: 0.10
+
+## Properties of outgoing commands
+publish_period: 0.02
+low_latency_mode: false
+command_out_type: trajectory_msgs/JointTrajectory
+publish_joint_positions: true
+publish_joint_velocities: true
+publish_joint_accelerations: false
+
+## Plugins for smoothing outgoing commands
+smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
+
+## Planning scene ownership
+is_primary_planning_scene_monitor: true
+
+## MoveIt properties
+move_group_name: arm
+planning_frame: base_link
+
+## Command frames
+ee_frame_name: link6
+robot_link_command_frame: base_link
+
+## Stopping behavior
+incoming_command_timeout: 0.1
+num_outgoing_halt_msgs_to_publish: 4
+
+## Singularity and joint-limit handling
+lower_singularity_threshold: 17.0
+hard_stop_singularity_threshold: 30.0
+joint_limit_margin: 0.1
+leaving_singularity_threshold_multiplier: 2.0
+
+## Topic names
+cartesian_command_in_topic: ~/delta_twist_cmds
+joint_command_in_topic: ~/delta_joint_cmds
+joint_topic: /joint_states_single
+status_topic: ~/status
+command_out_topic: /arm_controller/joint_trajectory
+
+## Collision checking
+check_collisions: true
+collision_check_rate: 10.0
+self_collision_proximity_threshold: 0.01
+scene_collision_proximity_threshold: 0.02

@@ -5,8 +5,8 @@
 #   ./quick_start.sh             -> Sets up CAN and drops you into a shell with piper_env active
 #   ./quick_start.sh <command>   -> Sets up CAN and runs the specific command
 
-# Path to the repo root
-REPO_ROOT="/home/lalit/Robotic_arm/piper_sdk"
+# Path to this repo, derived from the script location so the checkout is portable.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "========================================"
 echo "      Piper Robot Arm Quick Start       "
@@ -41,25 +41,52 @@ else
     echo "      $INTERFACE activated successfully."
 fi
 
-# 2. Activate Conda Environment
-echo "[2/2] Activating 'piper_env' environment..."
+# 2. Activate Python Environment
+echo "[2/2] Activating Python environment..."
 
-# Source conda.sh to enable 'conda activate' in script
-CONDA_PATH="$HOME/miniconda3/etc/profile.d/conda.sh"
-if [ -f "$CONDA_PATH" ]; then
-    source "$CONDA_PATH"
-else
-    echo "      Warning: Could not find conda.sh at $CONDA_PATH"
-    echo "      Assuming 'conda' is in path..."
+ENV_MODE="system"
+CONDA_FOUND=0
+for CONDA_PATH in \
+    "$HOME/miniconda3/etc/profile.d/conda.sh" \
+    "$HOME/anaconda3/etc/profile.d/conda.sh" \
+    "$HOME/miniforge3/etc/profile.d/conda.sh" \
+    "$HOME/mambaforge/etc/profile.d/conda.sh" \
+    "/opt/conda/etc/profile.d/conda.sh"
+do
+    if [ -f "$CONDA_PATH" ]; then
+        source "$CONDA_PATH"
+        CONDA_FOUND=1
+        break
+    fi
+done
+
+if command -v conda > /dev/null 2>&1; then
+    CONDA_FOUND=1
 fi
 
-conda activate piper_env
-
-if [ $? -eq 0 ]; then
-    echo "      Environment active."
+if [ "$CONDA_FOUND" -eq 1 ] && conda activate piper_env > /dev/null 2>&1; then
+    ENV_MODE="conda"
+    echo "      Conda environment 'piper_env' active."
 else
-    echo "      Failed to activate piper_env."
-    exit 1
+    if [ "$CONDA_FOUND" -eq 0 ]; then
+        echo "      Conda was not found; checking system Python instead..."
+    else
+        echo "      Conda environment 'piper_env' was not found; checking system Python instead..."
+    fi
+
+    export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+    if python -c "import piper_sdk, can" > /dev/null 2>&1; then
+        echo "      System Python is ready."
+    else
+        echo "      Python environment is not ready."
+        echo "      Install/setup one of these:"
+        echo "        conda create -n piper_env python=3.10"
+        echo "        conda activate piper_env"
+        echo "        pip install ."
+        echo "      Or install dependencies for system Python:"
+        echo "        python -m pip install ."
+        exit 1
+    fi
 fi
 
 echo "========================================"
@@ -69,9 +96,13 @@ echo "========================================"
 # 3. Execute payload
 if [ $# -eq 0 ]; then
     # No arguments provided, spawn a new shell
-    echo "Spawning a new shell with piper_env active..."
+    if [ "$ENV_MODE" = "conda" ]; then
+        echo "Spawning a new shell with piper_env active..."
+    else
+        echo "Spawning a new shell using system Python..."
+    fi
     echo "Type 'exit' to leave this session."
-    exec bash --rcfile <(echo ". ~/.bashrc; conda activate piper_env")
+    exec bash
 else
     # Run the provided command
     echo "Running command: $@"

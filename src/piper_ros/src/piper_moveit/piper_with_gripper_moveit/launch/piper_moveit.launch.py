@@ -69,7 +69,7 @@ def my_generate_move_group_launch(ld, moveit_config):
         moveit_config.to_dict(),
         move_group_configuration,
     ]
-    move_group_params.append({"use_sim_time": True})
+    move_group_params.append({"use_sim_time": False})
 
     add_debuggable_node(
         ld,
@@ -96,10 +96,9 @@ def my_generate_moveit_rviz_launch(ld, moveit_config):
     )
 
     rviz_parameters = [
-        moveit_config.planning_pipelines,
-        moveit_config.robot_description_kinematics,
+        moveit_config.to_dict(),
+        {"use_sim_time": False},
     ]
-    rviz_parameters.append({"use_sim_time": True})
 
     add_debuggable_node(
         ld,

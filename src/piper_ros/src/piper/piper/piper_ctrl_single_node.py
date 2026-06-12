@@ -26,17 +26,23 @@ class PiperRosNode(Node):
         # ROS parameters
         self.declare_parameter('can_port', 'can0')
         self.declare_parameter('auto_enable', False)
+        self.declare_parameter('auto_enable_timeout', 20.0)
+        self.declare_parameter('enable_service_timeout', 20.0)
         self.declare_parameter('gripper_exist', True)
         self.declare_parameter('gripper_val_mutiple', 1)
 
         self.can_port = self.get_parameter('can_port').get_parameter_value().string_value
         self.auto_enable = self.get_parameter('auto_enable').get_parameter_value().bool_value
+        self.auto_enable_timeout = self.get_parameter('auto_enable_timeout').get_parameter_value().double_value
+        self.enable_service_timeout = self.get_parameter('enable_service_timeout').get_parameter_value().double_value
         self.gripper_exist = self.get_parameter('gripper_exist').get_parameter_value().bool_value
         self.gripper_val_mutiple = self.get_parameter('gripper_val_mutiple').get_parameter_value().integer_value
         self.gripper_val_mutiple = max(0, min(self.gripper_val_mutiple, 10))
 
         self.get_logger().info(f"can_port is {self.can_port}")
         self.get_logger().info(f"auto_enable is {self.auto_enable}")
+        self.get_logger().info(f"auto_enable_timeout is {self.auto_enable_timeout}")
+        self.get_logger().info(f"enable_service_timeout is {self.enable_service_timeout}")
         self.get_logger().info(f"gripper_exist is {self.gripper_exist}")
         self.get_logger().info(f"gripper_val_mutiple is {self.gripper_val_mutiple}")
         # Publishers
@@ -50,16 +56,16 @@ class PiperRosNode(Node):
         self.motor_srv = self.create_service(Enable, 'enable_srv', self.handle_enable_service)
         # Joint
         self.joint_states = JointState()
-        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
-        self.joint_states.position = [0.0] * 7
-        self.joint_states.velocity = [0.0] * 7
-        self.joint_states.effort = [0.0] * 7
+        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7', 'joint8']
+        self.joint_states.position = [0.0] * 8
+        self.joint_states.velocity = [0.0] * 8
+        self.joint_states.effort = [0.0] * 8
 
         self.joint_states_feedback = JointState()
-        self.joint_states_feedback.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
-        self.joint_states_feedback.position = [0.0] * 7
-        self.joint_states_feedback.velocity = [0.0] * 7
-        self.joint_states_feedback.effort = [0.0] * 7
+        self.joint_states_feedback.name = self.joint_states.name[:]
+        self.joint_states_feedback.position = [0.0] * 8
+        self.joint_states_feedback.velocity = [0.0] * 8
+        self.joint_states_feedback.effort = [0.0] * 8
         # Joint ctrl
         self.joint_ctrl = JointState()
         self.joint_ctrl.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
@@ -72,6 +78,7 @@ class PiperRosNode(Node):
         self.piper = C_PiperInterface_V2(can_name=self.can_port)
         self.piper.ConnectPort()
         self._last_can_ok_log_time = 0.0
+        self._last_enable_no_feedback_log_time = 0.0
 
         # Start subscription thread
         self.create_subscription(PosCmd, 'pos_cmd', self.pos_callback, 1)
@@ -90,7 +97,7 @@ class PiperRosNode(Node):
         rate = self.create_rate(200)  # 200 Hz
         enable_flag = False
         # Set timeout (seconds)
-        timeout = 5
+        timeout = self.auto_enable_timeout
         # Record the time before entering the loop
         start_time = time.time()
         elapsed_time_flag = False
@@ -106,8 +113,11 @@ class PiperRosNode(Node):
                         self.piper.GetArmLowSpdInfoMsgs().motor_5.foc_status.driver_enable_status and \
                         self.piper.GetArmLowSpdInfoMsgs().motor_6.foc_status.driver_enable_status
                     self.get_logger().info(f"Enable status:{enable_flag}")
-                    self.piper.EnableArm(7)
-                    self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                    if self.piper.isOk():
+                        self.piper.EnableArm(7)
+                        self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                    else:
+                        self.log_enable_no_feedback("automatic enable")
                     if(enable_flag):
                         self.__enable_flag = True
                     self.get_logger().info("--------------------")
@@ -120,8 +130,12 @@ class PiperRosNode(Node):
                     time.sleep(1)
                     pass
             if(elapsed_time_flag):
-                self.get_logger().info("Automatic enable timeout, exiting program")
-                rclpy.shutdown()
+                self.get_logger().warn(
+                    "Automatic enable timeout; keeping driver alive. "
+                    "Check CAN feedback, arm power, E-stop, and can0 state."
+                )
+                self.auto_enable = False
+                elapsed_time_flag = False
             
             if self.piper.isOk():
                 self.PublishArmState()
@@ -179,7 +193,10 @@ class PiperRosNode(Node):
         joint_3: float = (self.piper.GetArmJointMsgs().joint_state.joint_4 / 1000) * 0.017444
         joint_4: float = (self.piper.GetArmJointMsgs().joint_state.joint_5 / 1000) * 0.017444
         joint_5: float = (self.piper.GetArmJointMsgs().joint_state.joint_6 / 1000) * 0.017444
-        joint_6: float = self.piper.GetArmGripperMsgs().gripper_state.grippers_angle / 1000000
+        gripper_stroke: float = self.piper.GetArmGripperMsgs().gripper_state.grippers_angle / 1000000
+        joint_6: float = gripper_stroke
+        joint_7: float = gripper_stroke / 2
+        joint_8: float = -gripper_stroke / 2
         vel_0: float = self.piper.GetArmHighSpdInfoMsgs().motor_1.motor_speed / 1000
         vel_1: float = self.piper.GetArmHighSpdInfoMsgs().motor_2.motor_speed / 1000
         vel_2: float = self.piper.GetArmHighSpdInfoMsgs().motor_3.motor_speed / 1000
@@ -193,13 +210,13 @@ class PiperRosNode(Node):
         effort_4:float = self.piper.GetArmHighSpdInfoMsgs().motor_5.effort/1000
         effort_5:float = self.piper.GetArmHighSpdInfoMsgs().motor_6.effort/1000
         effort_6:float = self.piper.GetArmGripperMsgs().gripper_state.grippers_effort/1000
-        self.joint_states.position = [joint_0,joint_1, joint_2, joint_3, joint_4, joint_5,joint_6]
-        self.joint_states.velocity = [vel_0, vel_1, vel_2, vel_3, vel_4, vel_5]
-        self.joint_states.effort = [effort_0, effort_1, effort_2, effort_3, effort_4, effort_5, effort_6]
+        self.joint_states.position = [joint_0, joint_1, joint_2, joint_3, joint_4, joint_5, joint_7, joint_8]
+        self.joint_states.velocity = [vel_0, vel_1, vel_2, vel_3, vel_4, vel_5, 0.0, 0.0]
+        self.joint_states.effort = [effort_0, effort_1, effort_2, effort_3, effort_4, effort_5, effort_6 / 2, -effort_6 / 2]
         
-        self.joint_states_feedback.position = [joint_0,joint_1, joint_2, joint_3, joint_4, joint_5,joint_6]
-        self.joint_states_feedback.velocity = [vel_0, vel_1, vel_2, vel_3, vel_4, vel_5]
-        self.joint_states_feedback.effort = [effort_0, effort_1, effort_2, effort_3, effort_4, effort_5, effort_6]
+        self.joint_states_feedback.position = self.joint_states.position[:]
+        self.joint_states_feedback.velocity = self.joint_states.velocity[:]
+        self.joint_states_feedback.effort = self.joint_states.effort[:]
         self.joint_states_feedback.header.stamp = self.joint_states.header.stamp
         # 发布所有消息
         if any(abs(pos) > 3.5 for pos in self.joint_states_feedback.position):
@@ -377,7 +394,7 @@ class PiperRosNode(Node):
         enable_flag = False
         loop_flag = False
         # Set timeout duration (seconds)
-        timeout = 5
+        timeout = self.enable_service_timeout
         # Record the time before entering the loop
         start_time = time.time()
         while not loop_flag:
@@ -390,6 +407,16 @@ class PiperRosNode(Node):
             enable_list.append(self.piper.GetArmLowSpdInfoMsgs().motor_4.foc_status.driver_enable_status)
             enable_list.append(self.piper.GetArmLowSpdInfoMsgs().motor_5.foc_status.driver_enable_status)
             enable_list.append(self.piper.GetArmLowSpdInfoMsgs().motor_6.foc_status.driver_enable_status)
+
+            if not self.piper.isOk():
+                self.log_enable_no_feedback("/enable_srv")
+                enable_flag = False
+                self.__enable_flag = False
+                if elapsed_time > timeout:
+                    self.get_logger().info(f"Timeout...")
+                    loop_flag = True
+                time.sleep(0.5)
+                continue
 
             if req.enable_request:
                 enable_flag = all(enable_list)
@@ -423,6 +450,15 @@ class PiperRosNode(Node):
         resp.enable_response = enable_flag
         self.get_logger().info(f"Returning response: {resp.enable_response}")
         return resp
+
+    def log_enable_no_feedback(self, context):
+        now = time.time()
+        if now - self._last_enable_no_feedback_log_time > 1.0:
+            self.get_logger().warn(
+                f"Skipping {context} command because {self.can_port} has no CAN feedback. "
+                "This avoids filling the CAN TX queue while the bus is not draining."
+            )
+            self._last_enable_no_feedback_log_time = now
 
 
 def main(args=None):

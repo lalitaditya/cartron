@@ -49,16 +49,16 @@ class PiperRosNode(Node):
         self.motor_srv = self.create_service(Enable, 'enable_srv', self.handle_enable_service)
         # Joint
         self.joint_states = JointState()
-        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
-        self.joint_states.position = [0.0] * 7
-        self.joint_states.velocity = [0.0] * 7
-        self.joint_states.effort = [0.0] * 7
+        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7', 'joint8']
+        self.joint_states.position = [0.0] * 8
+        self.joint_states.velocity = [0.0] * 8
+        self.joint_states.effort = [0.0] * 8
 
         self.joint_states_feedback = JointState()
-        self.joint_states_feedback.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
-        self.joint_states_feedback.position = [0.0] * 7
-        self.joint_states_feedback.velocity = [0.0] * 7
-        self.joint_states_feedback.effort = [0.0] * 7
+        self.joint_states_feedback.name = self.joint_states.name[:]
+        self.joint_states_feedback.position = [0.0] * 8
+        self.joint_states_feedback.velocity = [0.0] * 8
+        self.joint_states_feedback.effort = [0.0] * 8
         # Joint ctrl
         self.joint_states_ctrl = JointState()
         self.joint_states_ctrl.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
@@ -174,7 +174,10 @@ class PiperRosNode(Node):
         joint_3: float = (self.piper.GetArmJointMsgs().joint_state.joint_4 / 1000) * 0.017444
         joint_4: float = (self.piper.GetArmJointMsgs().joint_state.joint_5 / 1000) * 0.017444
         joint_5: float = (self.piper.GetArmJointMsgs().joint_state.joint_6 / 1000) * 0.017444
-        joint_6: float = self.piper.GetArmGripperMsgs().gripper_state.grippers_angle / 1000000
+        gripper_stroke: float = self.piper.GetArmGripperMsgs().gripper_state.grippers_angle / 1000000
+        joint_6: float = gripper_stroke
+        joint_7: float = gripper_stroke / 2
+        joint_8: float = -gripper_stroke / 2
         vel_0: float = self.piper.GetArmHighSpdInfoMsgs().motor_1.motor_speed / 1000
         vel_1: float = self.piper.GetArmHighSpdInfoMsgs().motor_2.motor_speed / 1000
         vel_2: float = self.piper.GetArmHighSpdInfoMsgs().motor_3.motor_speed / 1000
@@ -189,9 +192,9 @@ class PiperRosNode(Node):
         effort_5:float = self.piper.GetArmHighSpdInfoMsgs().motor_6.effort/1000
         effort_6:float = self.piper.GetArmGripperMsgs().gripper_state.grippers_effort/1000
         # 发布所有消息
-        self.joint_states_feedback.position = [joint_0,joint_1, joint_2, joint_3, joint_4, joint_5,joint_6]
-        self.joint_states_feedback.velocity = [vel_0, vel_1, vel_2, vel_3, vel_4, vel_5]
-        self.joint_states_feedback.effort = [effort_0, effort_1, effort_2, effort_3, effort_4, effort_5, effort_6]
+        self.joint_states_feedback.position = [joint_0, joint_1, joint_2, joint_3, joint_4, joint_5, joint_7, joint_8]
+        self.joint_states_feedback.velocity = [vel_0, vel_1, vel_2, vel_3, vel_4, vel_5, 0.0, 0.0]
+        self.joint_states_feedback.effort = [effort_0, effort_1, effort_2, effort_3, effort_4, effort_5, effort_6 / 2, -effort_6 / 2]
         self.joint_states_feedback.header.stamp = self.float_to_ros_time(new_time)
         if any(abs(pos) > 3.5 for pos in self.joint_states_feedback.position):
             self.get_logger().warn("Joint state abnormal: value exceeds ±3.5 rad")
